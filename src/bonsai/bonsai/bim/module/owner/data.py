@@ -179,7 +179,6 @@ class OwnerData:
         cls.data = {
             "user_person": cls.get_user_person(),
             "user_organisation": cls.get_user_organisation(),
-            "can_add_user": cls.can_add_user(),
             "users": cls.get_users(),
         }
         cls.is_loaded = True
@@ -191,10 +190,6 @@ class OwnerData:
     @classmethod
     def get_user_organisation(cls) -> tool.Blender.BLENDER_ENUM_ITEMS:
         return [(str(p.id()), p[0] or "Unnamed", "") for p in tool.Ifc.get().by_type("IfcOrganization")]
-
-    @classmethod
-    def can_add_user(cls) -> bool:
-        return bool(tool.Ifc.get().by_type("IfcPerson") and tool.Ifc.get().by_type("IfcOrganization"))
 
     @classmethod
     def get_users(cls) -> list[dict[str, Any]]:
@@ -342,7 +337,11 @@ class ApplicationsData:
         ifc_file = tool.Ifc.get()
         for application in ifc_file.by_type("IfcApplication"):
             total_inverses = ifc_file.get_total_inverses(application)
+            version = application.Version
             name = application.ApplicationFullName
+            # Sometimes apps duplicate version in the full name (e.g. Revit).
+            if version not in name:
+                name += f" ({version})"
             if total_inverses == 0:
                 name += " (unused)"
             applications.append(

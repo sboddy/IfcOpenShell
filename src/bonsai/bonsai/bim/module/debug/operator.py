@@ -739,9 +739,6 @@ class PurgeUnusedElementsByClass(bpy.types.Operator, tool.Ifc.Operator, ExportHe
             tool.Ifc.get().write(self.filepath)
 
 
-PurgeObjectType = Literal["TYPE", "PROFILE", "STYLE", "MATERIAL", "ORGANIZATION", "APPLICATION"]
-
-
 class PurgeUnusedObjects(bpy.types.Operator, tool.Ifc.Operator):
     bl_idname = "bim.purge_unused_objects"
     bl_label = "Purge Unused Objects"
@@ -749,11 +746,11 @@ class PurgeUnusedObjects(bpy.types.Operator, tool.Ifc.Operator):
 
     object_type: bpy.props.EnumProperty(  # pyright: ignore[reportRedeclaration]
         name="Object Type",
-        items=((s, s.capitalize(), "") for s in get_args(PurgeObjectType)),
+        items=((s, s.capitalize(), "") for s in get_args(tool.Debug.PurgeMergeObjectType)),
     )
 
     if TYPE_CHECKING:
-        object_type: PurgeObjectType
+        object_type: tool.Debug.PurgeMergeObjectType
 
     def _execute(self, context):
         object_type = self.object_type
@@ -767,30 +764,19 @@ class PurgeUnusedObjects(bpy.types.Operator, tool.Ifc.Operator):
             purged = tool.Material.purge_unused_materials()
         elif object_type in ("APPLICATION", "ORGANIZATION"):
             purged = core.purge_unused_elements(tool.Ifc, tool.Debug, "IfcApplication")
+        elif object_type == "PERSON":
+            purged = core.purge_unused_elements(tool.Ifc, tool.Debug, "IfcPerson")
+        elif object_type == "PERSON_AND_ORGANIZATION":
+            purged = core.purge_unused_elements(tool.Ifc, tool.Debug, "IfcPersonAndOrganization")
         else:
             assert_never(object_type)
 
-        self.report({"INFO"}, f"{purged} unused {object_type.lower()}s were purged.")
+        self.report({"INFO"}, f"{purged} unused {object_type.replace('_', ' ').lower()}s were purged.")
 
         if purged == 0:
             return
 
-        if object_type == "PROFILE":
-            props = tool.Profile.get_profile_props()
-            if props.is_editing:
-                bpy.ops.bim.load_profiles()
-        elif object_type == "STYLE":
-            props = tool.Style.get_style_props()
-            if props.is_editing:
-                bpy.ops.bim.load_styles()
-        elif object_type == "MATERIAL":
-            props = tool.Material.get_material_props()
-            if props.is_editing:
-                bpy.ops.bim.load_materials()
-        elif object_type == "ORGANIZATION":
-            props = tool.Owner.get_owner_props()
-            if tool.Ifc.get_entity_by_id(props.active_organisation_id) is None:
-                props.active_organisation_id = 0
+        tool.Debug.refresh_ui_after_purge_merge(object_type)
 
 
 class MergeIdenticalObjects(bpy.types.Operator, tool.Ifc.Operator):
@@ -801,11 +787,11 @@ class MergeIdenticalObjects(bpy.types.Operator, tool.Ifc.Operator):
 
     object_type: bpy.props.EnumProperty(  # pyright: ignore[reportRedeclaration]
         name="Object Type",
-        items=((s, s.capitalize(), "") for s in get_args(PurgeObjectType)),
+        items=((s, s.capitalize(), "") for s in get_args(tool.Debug.PurgeMergeObjectType)),
     )
 
     if TYPE_CHECKING:
-        object_type: PurgeObjectType
+        object_type: tool.Debug.PurgeMergeObjectType
 
     def _execute(self, context):
         object_type: str = self.object_type
@@ -814,11 +800,13 @@ class MergeIdenticalObjects(bpy.types.Operator, tool.Ifc.Operator):
             return {"CANCELLED"}
 
         merged_data = tool.Debug.merge_identical_objects(object_type)
-        plural_object_type = f"{object_type.lower()}s"
+        plural_object_type = f"{object_type.lower().replace('_', ' ')}s"
         if merged_data:
             for element_type, element_names in merged_data.items():
-                names = ", ".join([n or "Unnamed" for n in element_names])
-                print(f"- {element_type}: {names}")
+                print(f"- {element_type}:")
+                for name in element_names:
+                    name = name or "Unnamed"
+                    print(f"  - '{name}'")
         merged = sum(len(v) for v in merged_data.values())
 
         msg = " See system console for details." if merged else ""
@@ -827,18 +815,7 @@ class MergeIdenticalObjects(bpy.types.Operator, tool.Ifc.Operator):
         if merged == 0:
             return
 
-        if object_type == "PROFILE":
-            props = tool.Profile.get_profile_props()
-            if props.is_editing:
-                bpy.ops.bim.load_profiles()
-        elif object_type == "STYLE":
-            props = tool.Style.get_style_props()
-            if props.is_editing:
-                bpy.ops.bim.load_styles()
-        elif object_type == "MATERIAL":
-            props = tool.Material.get_material_props()
-            if props.is_editing:
-                bpy.ops.bim.load_materials()
+        tool.Debug.refresh_ui_after_purge_merge(object_type)
 
 
 class PipInstall(bpy.types.Operator):
