@@ -423,7 +423,7 @@ class BIM_ADDON_preferences(bpy.types.AddonPreferences):
         layout.prop(dprops, "classes_to_wireframe")
         layout.prop(dprops, "classes_no_cut")
 
-    def draw_decorator_colors(self, layout, context):
+    def draw_decorator_colors(self, layout: bpy.types.UILayout, context: bpy.types.Context) -> None:
         layout.row().prop(self, "decorations_colour")
         layout.row().prop(self, "decorator_color_selected")
         layout.row().prop(self, "decorator_color_unselected")
@@ -431,12 +431,13 @@ class BIM_ADDON_preferences(bpy.types.AddonPreferences):
         layout.row().prop(self, "decorator_color_error")
         layout.row().prop(self, "decorator_color_background")
 
-    def draw_other_settings(self, layout, context):
+    def draw_other_settings(self, layout: bpy.types.UILayout, context: bpy.types.Context) -> None:
         layout.prop(self, "opening_focus_opacity")
         props = tool.Project.get_project_props()
         layout.prop(props, "should_disable_undo_on_save")
         layout.prop(props, "should_stream")
         bprops = tool.Bsdd.get_bsdd_props()
+        layout.label(text="bSDD:")
         layout.prop(bprops, "load_preview_dictionaries")
         layout.prop(bprops, "load_inactive_dictionaries")
         layout.prop(bprops, "load_test_dictionaries")
@@ -1332,6 +1333,8 @@ class BIM_PT_decorators_overlay(Panel):
         row.prop(model_props, "show_wall_axis", text="Wall Axis")
         row = col.row(align=True)
         row.prop(model_props, "show_slab_direction", text="Slab Direction")
+        row = col.row(align=True)
+        row.prop(model_props, "show_bounding_box", text="Bounding Box Dimensions")
         row = col.row(align=True)
         row.prop(model_props, "show_cut_decorator", text="Cut Decorator")
         row.prop(model_props, "show_cut_decorator_fill", text="Fill Cut Decorator")

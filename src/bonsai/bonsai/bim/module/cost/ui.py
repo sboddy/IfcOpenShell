@@ -53,6 +53,7 @@ class BIM_PT_cost_schedules(Panel):
             if CostSchedulesData.data["total_cost_schedules"]:
                 row.alignment = "RIGHT"
                 row.operator("bim.export_cost_schedules", icon="EXPORT", text="Export All Schedules")
+                row.operator("bim.export_cost_schedules_to_pdf", icon="OUTPUT", text="")
                 row = self.layout.row(align=True)
                 row.label(text=f"{CostSchedulesData.data['total_cost_schedules']} Cost Schedules Found", icon="TEXT")
             else:
@@ -76,17 +77,14 @@ class BIM_PT_cost_schedules(Panel):
             col = row0.column()
             col.label(text="Linked CSV:")
             row_1 = col.row(align=True)
-            if self.props.active_cost_schedule_id in [item.cost_schedule_id for item in self.props.cost_schedule_files]:
-                file = next(
-                    (
-                        item.csv_filepath
-                        for item in self.props.cost_schedule_files
-                        if item.cost_schedule_id == self.props.active_cost_schedule_id
-                    ),
-                    None,
-                )
-                row_1.label(text=file)
+
+            csv_filepaths = CostSchedulesData.data["csv_filepaths"]
+            file_path = csv_filepaths.get(self.props.active_cost_schedule_id)
+
+            if file_path:
+                row_1.label(text=file_path)
                 row_1.operator("bim.refresh_cost_schedule_csv", icon="FILE_REFRESH", text="")
+                row_1.operator("bim.remove_cost_schedule_csv_link", icon="X", text="")
             else:
                 row_1.label(text="No CSV file found")
                 row_1.operator("bim.import_cost_schedule_csv", icon="IMPORT", text="")
@@ -226,7 +224,7 @@ class BIM_PT_cost_schedules(Panel):
         quantities = CostSchedulesData.data["cost_quantities"]
         row = self.layout.row(align=True)
         # In IFC, all quantities of IfcCostTime should have 1 type.
-        if quantities:
+        if quantities and cost_item.get("QuantityType"):
             quantity_class = cost_item["QuantityType"]
             row.label(text=quantity_class)
         else:

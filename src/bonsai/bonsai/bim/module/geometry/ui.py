@@ -525,14 +525,22 @@ class BIM_PT_derived_coordinates(Panel):
             text += "*"
         row.operator("bim.edit_object_placement", text=text, icon="EXPORT")
 
-        row = self.layout.row()
+        row = self.layout.row(align=True)
         row.label(text="XYZ Dimensions")
 
         row = self.layout.row(align=True)
         row.enabled = False
-        row.prop(context.active_object, "dimensions", text="X", index=0, slider=True)
-        row.prop(context.active_object, "dimensions", text="Y", index=1, slider=True)
-        row.prop(context.active_object, "dimensions", text="Z", index=2, slider=True)
+        area_3d = next((area for area in context.screen.areas if area.type == "VIEW_3D"), None)
+        space_3d = next((space for space in area_3d.spaces if space.type == "VIEW_3D"), None)
+
+        if bpy.context.scene.BIMModelProperties.show_bounding_box:
+            for axis, icon, idx in [("X", "STRIP_COLOR_01", 0), ("Y", "STRIP_COLOR_04", 1), ("Z", "STRIP_COLOR_05", 2)]:
+                row.label(text="", icon=icon)
+                row.prop(context.active_object, "dimensions", text=axis, index=idx)
+        else:
+            row.prop(context.active_object, "dimensions", text="X", index=0)
+            row.prop(context.active_object, "dimensions", text="Y", index=1)
+            row.prop(context.active_object, "dimensions", text="Z", index=2)
 
         row = self.layout.row(align=True)
         row.label(text="Min Global Z")

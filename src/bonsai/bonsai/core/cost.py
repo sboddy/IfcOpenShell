@@ -340,9 +340,10 @@ def select_cost_schedule_products(
 
 
 def import_cost_schedule_csv(
-    cost: type[tool.Cost], file_path: str, is_schedule_of_rates: bool
+    cost: type[tool.Cost], resolved_path: str, is_schedule_of_rates: bool
 ) -> ifcopenshell.entity_instance:
-    cost_schedule = cost.import_cost_schedule_csv(file_path, is_schedule_of_rates)
+
+    cost_schedule = cost.import_cost_schedule_csv(resolved_path, is_schedule_of_rates)
     return cost_schedule
 
 
@@ -354,10 +355,16 @@ def remove_csv_filepath(cost: type[tool.Cost], cost_schedule) -> None:
     cost.remove_csv_filepath(cost_schedule)
 
 
-def refresh_cost_schedule_csv(ifc: type[tool.Ifc], cost: type[tool.Cost]) -> None:
+def refresh_cost_schedule_csv(cost: type[tool.Cost]) -> Optional[str]:
     cost.delete_all_cost_items()
     cost.refresh_cost_schedule_csv()
     cost.load_cost_schedule_tree()
+
+
+def remove_cost_schedule_csv_link(cost: type[tool.Cost]) -> None:
+    cost_schedule = cost.get_active_cost_schedule()
+    if cost_schedule:
+        cost.remove_csv_filepath(cost_schedule)
 
 
 def add_cost_column(cost: type[tool.Cost], name: str) -> None:
@@ -394,6 +401,13 @@ def export_cost_schedules(
 ) -> Union[str, None]:
     cost.play_sound()
     return cost.export_cost_schedules(dirpath, format, cost_schedule)
+
+
+def export_cost_schedules_to_pdf(
+    cost: type[tool.Cost], filepath: str, cost_schedule: ifcopenshell.entity_instance, options: dict
+):
+    cost.play_sound()
+    return cost.export_cost_schedules_to_pdf(filepath, cost_schedule, options)
 
 
 def clear_cost_item_assignments(

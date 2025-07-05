@@ -39,9 +39,10 @@ from typing import get_args, TYPE_CHECKING, assert_never
 class EnableStatusFilters(bpy.types.Operator):
     bl_idname = "bim.enable_status_filters"
     bl_label = "Enable Status Filters"
+    bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
-        props = context.scene.BIMStatusProperties
+        props = tool.Sequence.get_status_props()
         props.is_enabled = True
         hidden_statuses = {s.name for s in props.statuses if not s.is_visible}
 
@@ -76,9 +77,10 @@ class DisableStatusFilters(bpy.types.Operator):
     bl_idname = "bim.disable_status_filters"
     bl_label = "Disable Status Filters"
     bl_description = "Deactivate status filters panel.\nCan be used to refresh the displayed statuses"
+    bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
-        props = context.scene.BIMStatusProperties
+        props = tool.Sequence.get_status_props()
 
         all_statuses = {s.name for s in props.statuses}
         tool.Sequence.set_visibility_by_status(all_statuses)
@@ -90,9 +92,15 @@ class ActivateStatusFilters(bpy.types.Operator):
     bl_idname = "bim.activate_status_filters"
     bl_label = "Activate Status Filters"
     bl_description = "Filter and display objects based on currently selected IFC statuses"
+    bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
-        props = context.scene.BIMStatusProperties
+        props = tool.Sequence.get_status_props()
+
+        if not props.is_enabled:
+            # In case if operator was added to Quick Favorites.
+            bpy.ops.bim.disable_status_filters()
+            return {"FINISHED"}
 
         visible_statuses = {s.name for s in props.statuses if s.is_visible}
         tool.Sequence.set_visibility_by_status(visible_statuses)
@@ -103,10 +111,10 @@ class SelectStatusFilter(bpy.types.Operator):
     bl_idname = "bim.select_status_filter"
     bl_label = "Select Status Filter"
     bl_description = "Select elements with currently selected status"
+    bl_options = {"REGISTER", "UNDO"}
     name: bpy.props.StringProperty()
 
     def execute(self, context):
-        props = context.scene.BIMStatusProperties
         query = f"IfcProduct, /Pset_.*Common/.Status={self.name} + IfcProduct, EPset_Status.Status={self.name}"
         if self.name == "No Status":
             query = f"IfcProduct, /Pset_.*Common/.Status=NULL, EPset_Status.Status=NULL"
@@ -132,10 +140,11 @@ class EditWorkPlan(bpy.types.Operator, tool.Ifc.Operator):
     bl_label = "Edit Work Plan"
 
     def _execute(self, context):
+        props = tool.Sequence.get_work_plan_props()
         core.edit_work_plan(
             tool.Ifc,
             tool.Sequence,
-            work_plan=tool.Ifc.get().by_id(context.scene.BIMWorkPlanProperties.active_work_plan_id),
+            work_plan=tool.Ifc.get().by_id(props.active_work_plan_id),
         )
 
 

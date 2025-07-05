@@ -56,8 +56,28 @@ class CostSchedulesData:
             "cost_values": cls.cost_values(),
             "quantity_types": cls.quantity_types(),
             "currency": cls.currency(),
+            "csv_filepaths": cls.get_csv_filepaths(),
         }
         cls.is_loaded = True
+
+    @classmethod
+    def get_csv_filepaths(cls) -> dict[int, str]:
+        """Get CSV filepaths for cost schedules from document references."""
+        filepaths = {}
+        cost_docs_document = tool.Cost.get_or_create_cost_documents()
+
+        if cost_docs_document:
+            references = tool.Document.get_document_references(cost_docs_document)
+            for reference in references:
+                if reference.Description and "Cost Schedule ID:" in reference.Description:
+                    schedule_id_str = reference.Description.split("Cost Schedule ID:")[1].strip()
+                    try:
+                        schedule_id = int(schedule_id_str)
+                        filepaths[schedule_id] = reference.Location
+                    except ValueError:
+                        pass
+
+        return filepaths
 
     @classmethod
     def currency(cls) -> Union[Currency, None]:
@@ -171,6 +191,7 @@ class CostSchedulesData:
         #         parametric_quantities.extend(quantities)
         data["TotalCostQuantity"] = ifcopenshell.util.cost.get_total_quantity(cost_item)
         data["UnitSymbol"] = "-"
+        data["QuantityType"] = None
         quantities: list[ifcopenshell.entity_instance] = cost_item.CostQuantities
         if quantities:
             quantity = quantities[0]

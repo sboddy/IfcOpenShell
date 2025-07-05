@@ -22,6 +22,7 @@ import bonsai.tool as tool
 import ifcopenshell.api.pset
 import ifcopenshell.util.element
 from bonsai.core import bsdd as core
+from typing import Any
 
 
 class LoadBSDDDictionaries(bpy.types.Operator):
@@ -79,7 +80,7 @@ class SearchBSDDProperties(bpy.types.Operator):
 class AddBSDDProperties(bpy.types.Operator, tool.Ifc.Operator):
     bl_idname = "bim.add_bsdd_properties"
     bl_label = "Add bSDD Properties"
-    bl_description = "Add selected bSDD properties"
+    bl_description = "Add selected bSDD properties to the active object"
     bl_options = {"REGISTER", "UNDO"}
     obj: bpy.props.StringProperty()
     obj_type: bpy.props.StringProperty()
@@ -88,7 +89,7 @@ class AddBSDDProperties(bpy.types.Operator, tool.Ifc.Operator):
         self.file = tool.Ifc.get()
         bprops = tool.Bsdd.get_bsdd_props()
 
-        psets = {}
+        psets: dict[str, dict[str, Any]] = {}
         for selected_property in bprops.selected_properties:
             psets.setdefault(selected_property.metadata, {})[selected_property.name] = selected_property.get_value()
 

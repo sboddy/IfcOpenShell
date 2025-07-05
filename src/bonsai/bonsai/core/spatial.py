@@ -110,10 +110,15 @@ def select_container(
     spatial.set_active_object(ifc.get_object(container), selection_mode=selection_mode)
 
 
-def select_similar_container(ifc: type[tool.Ifc], spatial: type[tool.Spatial], obj: bpy.types.Object) -> None:
+def select_similar_container(
+    ifc: type[tool.Ifc],
+    spatial: type[tool.Spatial],
+    obj: bpy.types.Object,
+    is_recursive: bool = True,
+) -> None:
     element = ifc.get_entity(obj)
     if element:
-        spatial.select_products(spatial.get_decomposed_elements(spatial.get_container(element)))
+        spatial.select_products(spatial.get_decomposed_elements(spatial.get_container(element), is_recursive))
 
 
 def select_product(spatial: type[tool.Spatial], product: ifcopenshell.entity_instance) -> None:
@@ -242,7 +247,7 @@ def generate_spaces_from_walls(
     for i, linear_ring in enumerate(union.interiors):
         poly = spatial.get_buffered_poly_from_linear_ring(linear_ring)
 
-        bm = spatial.get_bmesh_from_polygon(poly, h)
+        bm = spatial.get_bmesh_from_polygon(poly, h, polygon_is_si=False)
 
         name = "Space" + str(i)
 

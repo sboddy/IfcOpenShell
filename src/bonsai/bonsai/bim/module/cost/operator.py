@@ -25,6 +25,8 @@ import bonsai.tool as tool
 from bpy_extras.io_utils import ImportHelper, ExportHelper
 import bonsai.tool as tool
 import bonsai.core.cost as core
+from pathlib import Path
+
 from typing import get_args, TYPE_CHECKING, Literal
 
 
@@ -545,11 +547,16 @@ class SelectCostScheduleProducts(bpy.types.Operator):
 class ImportCostScheduleCsv(bpy.types.Operator, ImportHelper, tool.Ifc.Operator):
     bl_idname = "bim.import_cost_schedule_csv"
     bl_label = "Import Cost Schedule CSV"
-    bl_description = "Import cost schdule from the provided .csv file."
+    bl_description = "Import cost schedule from the provided .csv file."
     bl_options = {"REGISTER", "UNDO"}
     filename_ext = ".csv"
     filter_glob: bpy.props.StringProperty(default="*.csv", options={"HIDDEN"})
     is_schedule_of_rates: bpy.props.BoolProperty(name="Is Schedule Of Rates", default=False)
+    use_relative_path: bpy.props.BoolProperty(
+        name="Use Relative Path",
+        description="Store the CSV filepath relative to the currently opened IFC file",
+        default=False,
+    )
 
     @classmethod
     def poll(cls, context):
@@ -560,20 +567,80 @@ class ImportCostScheduleCsv(bpy.types.Operator, ImportHelper, tool.Ifc.Operator)
         return True
 
     def _execute(self, context):
-        cost_schedule = core.import_cost_schedule_csv(tool.Cost, self.filepath, self.is_schedule_of_rates)
-        core.add_csv_filepath(tool.Cost, self.filepath, self.is_schedule_of_rates, cost_schedule)
-        return {"FINISHED"}
+
+        store_path = self.filepath
+        if self.use_relative_path:
+            store_path = tool.Ifc.get_uri(self.filepath, use_relative_path=True)
+
+        resolved_path = Path(tool.Ifc.resolve_uri(self.filepath))
+        if not resolved_path.exists():
+            self.report({"ERROR"}, f"File does not exist: '{store_path}' (resolved to '{resolved_path}')")
+            return {"CANCELLED"}
+
+        cost_schedule = core.import_cost_schedule_csv(tool.Cost, str(resolved_path), self.is_schedule_of_rates)
+        if cost_schedule:
+            core.add_csv_filepath(tool.Cost, store_path, self.is_schedule_of_rates, cost_schedule)
+            return {"FINISHED"}
+        return {"CANCELLED"}
+
+    def draw(self, context):
+        row = self.layout.row()
+        row.prop(self, "is_schedule_of_rates")
+        row = self.layout.row()
+        row.prop(self, "use_relative_path")
 
 
 class RefreshCostScheduleCsv(bpy.types.Operator, tool.Ifc.Operator):
     bl_idname = "bim.refresh_cost_schedule_csv"
     bl_label = "Refresh Cost Schedule CSV"
+    bl_description = "Refresh cost schedule data from the associated CSV file"
     bl_options = {"REGISTER", "UNDO"}
 
     @classmethod
+    def poll(cls, context):
+        props = tool.Cost.get_cost_props()
+        if not props.active_cost_schedule_id:
+            cls.poll_message_set("No active cost schedule")
+            return False
+
+        file_path = tool.Cost.get_cost_schedule_csv_filepath(props.active_cost_schedule_id)
+        if not file_path:
+            cls.poll_message_set("No CSV file associated with this cost schedule")
+            return False
+
+        return True
+
     def _execute(self, context):
-        core.refresh_cost_schedule_csv(tool.Ifc, tool.Cost)
+        core.refresh_cost_schedule_csv(tool.Cost)
         return {"FINISHED"}
+
+
+class RemoveCostScheduleCsvLink(bpy.types.Operator, tool.Ifc.Operator):
+    bl_idname = "bim.remove_cost_schedule_csv_link"
+    bl_label = "Remove CSV Link"
+    bl_description = "Remove the link to the CSV file and delete the related document reference"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        props = tool.Cost.get_cost_props()
+        if not props.active_cost_schedule_id:
+            cls.poll_message_set("No active cost schedule")
+            return False
+
+        file_path = tool.Cost.get_cost_schedule_csv_filepath(props.active_cost_schedule_id)
+        if not file_path:
+            cls.poll_message_set("No CSV file associated with this cost schedule")
+            return False
+
+        return True
+
+    def _execute(self, context):
+        core.remove_cost_schedule_csv_link(tool.Cost)
+        return {"FINISHED"}
+
+    def invoke(self, context, event):
+        return context.window_manager.invoke_confirm(self, event)
 
 
 class AddCostColumn(bpy.types.Operator):
@@ -783,6 +850,81 @@ class ExportCostSchedules(bpy.types.Operator, ExportHelper):
         self.layout.label(text="Choose a format")
         self.layout.prop(self, "format")
         self.layout.label(text="Select a directory.")
+
+
+class ExportCostSchedulesToPDF(bpy.types.Operator, ExportHelper):
+    bl_idname = "bim.export_cost_schedules_to_pdf"
+    bl_label = "Export Cost Schedule to PDF"
+    bl_options = {"REGISTER", "UNDO"}
+    bl_description = "Print chosen cost schedule to pdf."
+    filename_ext = ".pdf"
+    filter_glob: bpy.props.StringProperty(default="*.pdf", options={"HIDDEN"}, maxlen=255)
+
+    cost_schedules_items = []
+
+    def get_cost_schedules_enum_items(self, context):
+        return ExportCostSchedulesToPDF.cost_schedules_items
+
+    cost_schedules_enum: bpy.props.EnumProperty(
+        name="",
+        description="Choose IfcCostSchedule to print",
+        items=get_cost_schedules_enum_items,
+    )
+
+    should_print_summary: bpy.props.BoolProperty(
+        name="Should print summary",
+        description="Print summary at the end of the document",
+        default=True,
+    )
+
+    def draw(self, context):
+        layout = self.layout
+        box = layout.box()
+        box.label(text="Select Ifc Cost Schedule:")
+        box.prop(self, "cost_schedules_enum", text="")
+        layout.separator()
+        box = layout.box()
+        box.label(text="Export properties:")
+        box.prop(self, "should_print_summary")
+
+    @classmethod
+    def poll(cls, context):
+        try:
+            import typst
+
+            return True
+        except:
+            cls.poll_message_set(
+                "Typst not available.\nIt can be installed from Quality and\nControl -> Debug and using 'typst' with Pip Install.\n(Run Blender as Administrator)"
+            )
+            return False
+
+    def invoke(self, context, event):
+        ExportCostSchedulesToPDF.cost_schedules_items.clear()
+        file = tool.Ifc.get()
+        schedules = file.by_type("IfcCostSchedule")
+        for schedule in schedules:
+            ExportCostSchedulesToPDF.cost_schedules_items.append(
+                (
+                    str(schedule.id()),
+                    "{} ({})".format(
+                        schedule.Name if schedule.Name is not None else "Unnamed",
+                        schedule.PredefinedType if schedule.PredefinedType is not None else "UNTYPED",
+                    ),
+                    "",
+                )
+            )
+        return ExportHelper.invoke(self, context, event)
+
+    def execute(self, context):
+        file = tool.Ifc.get()
+        self.props = tool.Cost.get_cost_props()
+        cost_schedule = file.by_id(int(self.cost_schedules_enum))
+        options = {"should_print_summary": self.should_print_summary}
+        core.export_cost_schedules_to_pdf(
+            tool.Cost, filepath=self.filepath, cost_schedule=cost_schedule, options=options
+        )
+        return {"FINISHED"}
 
 
 class ClearCostItemAssignments(bpy.types.Operator, tool.Ifc.Operator):
