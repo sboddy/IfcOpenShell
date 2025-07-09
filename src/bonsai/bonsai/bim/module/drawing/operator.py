@@ -1726,7 +1726,9 @@ class OpenLayout(bpy.types.Operator, tool.Ifc.Operator):
 
     def _execute(self, context):
         self.props = tool.Drawing.get_document_props()
-        sheet = tool.Ifc.get().by_id(self.props.sheets[self.props.active_sheet_index].ifc_definition_id)
+        sheet_item = tool.Drawing.get_active_sheet_item()
+        assert sheet_item
+        sheet = tool.Ifc.get().by_id(sheet_item.ifc_definition_id)
         sheet_builder = sheeter.SheetBuilder()
         sheet_builder.update_sheet_drawing_sizes(sheet)
         core.open_layout(tool.Drawing, sheet=sheet)
@@ -1790,13 +1792,19 @@ class OpenSheet(bpy.types.Operator):
                 tool.Ifc.get().by_id(s.ifc_definition_id) for s in self.props.sheets if s.is_sheet and s.is_selected
             ]
         else:
-            sheets = [tool.Ifc.get().by_id(self.props.sheets[self.props.active_sheet_index].ifc_definition_id)]
+            sheet_item = tool.Drawing.get_active_sheet_item()
+            assert sheet_item
+            sheets = [tool.Ifc.get().by_id(sheet_item.ifc_definition_id)]
 
-        sheet_uris = []
-        sheets_not_found = []
+        sheet_uris: list[str] = []
+        sheets_not_found: list[str] = []
+        warnings: list[tool.Drawing.SheetWarningType] = []
 
         for sheet in sheets:
             if not sheet.is_a("IfcDocumentInformation"):
+                continue
+            warnings.extend(sheets_warnings := tool.Drawing.validate_sheet_files(sheet))
+            if sheets_warnings:
                 continue
             sheet_builder = sheeter.SheetBuilder()
             references = sheet_builder.build(sheet)
@@ -1806,6 +1814,11 @@ class OpenSheet(bpy.types.Operator):
             sheet_uris.append(sheet_uri)
             if not os.path.exists(sheet_uri):
                 sheets_not_found.append(sheet.Name)
+
+        if warnings:
+            self.report({"ERROR"}, f"There were errors opening sheets. See system console for the details.")
+            print("-" * 10)
+            print("\n".join(str(w) for w in warnings))
 
         if sheets_not_found:
             msg = "Some sheets .svg/.pdf files were not found, need to create them first: \n{}.".format(
@@ -1846,7 +1859,7 @@ class AddDrawingToSheet(bpy.types.Operator, tool.Ifc.Operator):
         assert active_drawing
         ifc_file = tool.Ifc.get()
 
-        active_sheet = tool.Drawing.get_active_sheet(context)
+        active_sheet = tool.Drawing.get_active_sheet()
         drawing = tool.Ifc.get().by_id(active_drawing.ifc_definition_id)
         drawing_reference = tool.Drawing.get_drawing_document(drawing)
 
@@ -1960,9 +1973,18 @@ class CreateSheets(bpy.types.Operator, tool.Ifc.Operator):
         if self.create_all:
             sheets = [tool.Ifc.get().by_id(s.ifc_definition_id) for s in props.sheets if s.is_sheet and s.is_selected]
         else:
-            sheets = [tool.Ifc.get().by_id(props.sheets[props.active_sheet_index].ifc_definition_id)]
+            sheet_item = tool.Drawing.get_active_sheet_item()
+            assert sheet_item
+            sheets = [tool.Ifc.get().by_id(sheet_item.ifc_definition_id)]
 
+        warnings: list[tool.Drawing.SheetWarningType] = []
+        n_sheets_created = 0
         for sheet in sheets:
+
+            warnings.extend(sheet_warnings := tool.Drawing.validate_sheet_files(sheet))
+            if sheet_warnings:
+                continue
+
             # Update any drawing boundary changes
             sheet_builder = sheeter.SheetBuilder()
             sheet_builder.update_sheet_drawing_sizes(sheet)
@@ -2023,8 +2045,16 @@ class CreateSheets(bpy.types.Operator, tool.Ifc.Operator):
                     tool.Drawing.open_with_user_command(tool.Blender.get_addon_preferences().pdf_command, pdf)
                 else:
                     tool.Drawing.open_with_user_command(tool.Blender.get_addon_preferences().svg_command, svg)
+
+            n_sheets_created += 1
+
         if not self.open_viewer:
-            self.report({"INFO"}, f"{len(sheets)} sheets created...")
+            self.report({"INFO"}, f"{n_sheets_created} sheets created...")
+
+        if warnings:
+            self.report({"ERROR"}, f"There were errors creating sheets. See system console for the details.")
+            print("-" * 10)
+            print("\n".join(str(w) for w in warnings))
 
 
 class SelectAllDrawings(bpy.types.Operator):
@@ -2711,7 +2741,7 @@ class AddScheduleToSheet(bpy.types.Operator, tool.Ifc.Operator):
     def _execute(self, context):
         props = tool.Drawing.get_document_props()
         active_schedule = props.schedules[props.active_schedule_index]
-        active_sheet = tool.Drawing.get_active_sheet(context)
+        active_sheet = tool.Drawing.get_active_sheet()
         ifc_file = tool.Ifc.get()
         schedule = tool.Ifc.get().by_id(active_schedule.ifc_definition_id)
         if tool.Ifc.get_schema() == "IFC2X3":
@@ -2779,7 +2809,7 @@ class AddReferenceToSheet(bpy.types.Operator, tool.Ifc.Operator):
     def _execute(self, context):
         props = tool.Drawing.get_document_props()
         active_reference = props.references[props.active_reference_index]
-        active_sheet = tool.Drawing.get_active_sheet(context)
+        active_sheet = tool.Drawing.get_active_sheet()
         ifc_file = tool.Ifc.get()
         extref = tool.Ifc.get().by_id(active_reference.ifc_definition_id)
         if tool.Ifc.get_schema() == "IFC2X3":
@@ -3162,7 +3192,7 @@ class LoadSheets(bpy.types.Operator, tool.Ifc.Operator):
         core.load_sheets(tool.Drawing)
 
         props = tool.Drawing.get_document_props()
-        sheets_not_found = []
+        warnings: list[tool.Drawing.SheetWarningType] = []
         for sheet_prop in props.sheets:
             if not sheet_prop.is_sheet:
                 continue
@@ -3173,12 +3203,14 @@ class LoadSheets(bpy.types.Operator, tool.Ifc.Operator):
 
             filepath = Path(document_uri)
             if not filepath.is_file():
-                sheet_name = f"{sheet_prop.identification} - {sheet_prop.name}"
-                sheets_not_found.append(f'"{sheet_name}" - {document_uri}')
-                core.regenerate_sheet(tool.Drawing, sheet)
+                res = core.regenerate_sheet(tool.Drawing, sheet)
+                if res:
+                    warnings.extend(res)
 
-        if sheets_not_found:
-            self.report({"ERROR"}, "Some sheets svg files are missing:\n" + "\n".join(sheets_not_found))
+        if warnings:
+            self.report({"WARNING"}, f"There were warnings loading sheets. See system console for the details.")
+            print("-" * 10)
+            print("\n".join(str(w) for w in warnings))
 
 
 class EditSheet(bpy.types.Operator, tool.Ifc.Operator):
@@ -3193,8 +3225,9 @@ class EditSheet(bpy.types.Operator, tool.Ifc.Operator):
 
     def invoke(self, context, event):
         assert context.window_manager
-        self.props = tool.Drawing.get_document_props()
-        sheet = tool.Ifc.get().by_id(self.props.sheets[self.props.active_sheet_index].ifc_definition_id)
+        sheet_item = tool.Drawing.get_active_sheet_item()
+        assert sheet_item
+        sheet = tool.Ifc.get().by_id(sheet_item.ifc_definition_id)
         if sheet.is_a("IfcDocumentInformation"):
             self.document_type = "SHEET"
             self.name = sheet.Name
@@ -3222,15 +3255,17 @@ class EditSheet(bpy.types.Operator, tool.Ifc.Operator):
             row.prop(self, "identification", text="Identification")
 
     def _execute(self, context):
-        self.props = tool.Drawing.get_document_props()
+        props = tool.Drawing.get_document_props()
         ifc_file = tool.Ifc.get()
-        sheet = tool.Ifc.get().by_id(self.props.sheets[self.props.active_sheet_index].ifc_definition_id)
+        sheet_item = tool.Drawing.get_active_sheet_item()
+        assert sheet_item
+        sheet = tool.Ifc.get().by_id(sheet_item.ifc_definition_id)
         if self.document_type == "SHEET":
             core.rename_sheet(tool.Ifc, tool.Drawing, sheet=sheet, identification=self.identification, name=self.name)
         elif self.document_type == "EMBEDDED":
             core.rename_reference(tool.Ifc, tool.Drawing, reference=sheet, identification=self.identification)
         elif self.document_type == "TITLEBLOCK":
-            titleblock = self.props.titleblock
+            titleblock = props.titleblock
             reference = sheet
             sheet = tool.Drawing.get_reference_document(reference)
             assert sheet

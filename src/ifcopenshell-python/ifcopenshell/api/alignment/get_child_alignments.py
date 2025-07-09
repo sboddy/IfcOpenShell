@@ -26,7 +26,7 @@ import ifcopenshell.util.element
 
 def get_child_alignments(alignment: entity_instance) -> Sequence[entity_instance]:
     """
-    Returns the aggregated child alignments to this alignment
+    Returns the aggregated child alignments to this alignment per CT 4.1.4.4.1.2 Alignment Layout - Reusing Horizontal Layout
 
     Example:
 

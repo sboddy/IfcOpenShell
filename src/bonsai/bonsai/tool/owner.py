@@ -26,7 +26,7 @@ from typing import Union, Any, TYPE_CHECKING, Literal, assert_never
 
 if TYPE_CHECKING:
     from bonsai.bim.module.owner.prop import BIMOwnerProperties
-    from bonsai.bim.prop import Attribute
+    from bonsai.bim.prop import Attribute, StrProperty
 
 
 class Owner(bonsai.core.tool.Owner):
@@ -61,8 +61,27 @@ class Owner(bonsai.core.tool.Owner):
         props.active_address_id = address.id()
 
     @classmethod
+    def get_address_collection_name(cls, attribute_name: AddressAttributeType) -> str:
+        blender_names: dict[tool.Owner.AddressAttributeType, str] = {
+            "AddressLines": "address_lines",
+            "TelephoneNumbers": "telephone_numbers",
+            "FacsimileNumbers": "facsimile_numbers",
+            "ElectronicMailAddresses": "electronic_mail_addresses",
+            "MessagingIDs": "messaging_ids",
+        }
+        return blender_names[attribute_name]
+
+    @classmethod
+    def get_address_collection(
+        cls, attribute_name: AddressAttributeType
+    ) -> bpy.types.bpy_prop_collection_idprop[StrProperty]:
+        props = cls.get_owner_props()
+        blender_name = cls.get_address_collection_name(attribute_name)
+        return getattr(props, blender_name)
+
+    @classmethod
     def import_address_attributes(cls) -> None:
-        props = props = cls.get_owner_props()
+        props = cls.get_owner_props()
         props.address_attributes.clear()
         props.address_lines.clear()
         props.telephone_numbers.clear()
@@ -73,21 +92,10 @@ class Owner(bonsai.core.tool.Owner):
         address = cls.get_address()
 
         def callback(name: str, prop, data: dict[str, Any]) -> None:
-            if name == "AddressLines":
+            if name in cls.ADDREESS_ATTRIBUTE_TYPES:
+                collection = cls.get_address_collection(name)
                 for line in data[name] or []:
-                    props.address_lines.add().name = line
-            elif name == "TelephoneNumbers":
-                for line in data[name] or []:
-                    props.telephone_numbers.add().name = line
-            elif name == "FacsimileNumbers":
-                for line in data[name] or []:
-                    props.facsimile_numbers.add().name = line
-            elif name == "ElectronicMailAddresses":
-                for line in data[name] or []:
-                    props.electronic_mail_addresses.add().name = line
-            elif name == "MessagingIDs":
-                for line in data[name] or []:
-                    props.messaging_ids.add().name = line
+                    collection.add().name = line
 
         bonsai.bim.helper.import_attributes(address.is_a(), props.address_attributes, address.get_info(), callback)
 
@@ -117,38 +125,23 @@ class Owner(bonsai.core.tool.Owner):
     AddressAttributeType = Literal[
         "AddressLines", "TelephoneNumbers", "FacsimileNumbers", "ElectronicMailAddresses", "MessagingIDs"
     ]
+    ADDREESS_ATTRIBUTE_TYPES = (
+        "AddressLines",
+        "TelephoneNumbers",
+        "FacsimileNumbers",
+        "ElectronicMailAddresses",
+        "MessagingIDs",
+    )
 
     @classmethod
     def add_address_attribute(cls, name: AddressAttributeType) -> None:
-        props = cls.get_owner_props()
-        if name == "AddressLines":
-            props.address_lines.add()
-        elif name == "TelephoneNumbers":
-            props.telephone_numbers.add()
-        elif name == "FacsimileNumbers":
-            props.facsimile_numbers.add()
-        elif name == "ElectronicMailAddresses":
-            props.electronic_mail_addresses.add()
-        elif name == "MessagingIDs":
-            props.messaging_ids.add()
-        else:
-            assert_never(name)
+        collection = cls.get_address_collection(name)
+        collection.add()
 
     @classmethod
     def remove_address_attribute(cls, name: AddressAttributeType, id: int) -> None:
-        props = cls.get_owner_props()
-        if name == "AddressLines":
-            props.address_lines.remove(id)
-        elif name == "TelephoneNumbers":
-            props.telephone_numbers.remove(id)
-        elif name == "FacsimileNumbers":
-            props.facsimile_numbers.remove(id)
-        elif name == "ElectronicMailAddresses":
-            props.electronic_mail_addresses.remove(id)
-        elif name == "MessagingIDs":
-            props.messaging_ids.remove(id)
-        else:
-            assert_never(name)
+        collection = cls.get_address_collection(name)
+        collection.remove(id)
 
     @classmethod
     def set_organisation(cls, organisation: ifcopenshell.entity_instance) -> None:
@@ -185,6 +178,23 @@ class Owner(bonsai.core.tool.Owner):
         props.active_person_id = person.id()
 
     @classmethod
+    def get_names_collection_name(cls, attribute_name: PersonAttributeType) -> str:
+        blender_names = {
+            "MiddleNames": "middle_names",
+            "PrefixTitles": "prefix_titles",
+            "SuffixTitles": "suffix_titles",
+        }
+        return blender_names[attribute_name]
+
+    @classmethod
+    def get_names_collection(
+        cls, attribute_name: PersonAttributeType
+    ) -> bpy.types.bpy_prop_collection_idprop[StrProperty]:
+        props = cls.get_owner_props()
+        blender_name = cls.get_names_collection_name(attribute_name)
+        return getattr(props, blender_name)
+
+    @classmethod
     def import_person_attributes(cls) -> None:
         props = cls.get_owner_props()
         person = tool.Ifc.get().by_id(props.active_person_id)
@@ -194,15 +204,10 @@ class Owner(bonsai.core.tool.Owner):
         props.suffix_titles.clear()
 
         def callback(name: str, prop, data: dict[str, Any]) -> None:
-            if name == "MiddleNames":
-                for name in data["MiddleNames"] or []:
-                    props.middle_names.add().name = name or ""
-            if name == "PrefixTitles":
-                for name in data["PrefixTitles"] or []:
-                    props.prefix_titles.add().name = name or ""
-            if name == "SuffixTitles":
-                for name in data["SuffixTitles"] or []:
-                    props.suffix_titles.add().name = name or ""
+            if name in cls.PERSON_ATTRIBUTE_TYPES:
+                collection = cls.get_names_collection(name)
+                for name_ in data[name] or []:
+                    collection.add().name = name_ or ""
 
         bonsai.bim.helper.import_attributes("IfcPerson", props.person_attributes, person.get_info(), callback)
 
@@ -226,30 +231,17 @@ class Owner(bonsai.core.tool.Owner):
         return tool.Ifc().get().by_id(props.active_person_id)
 
     PersonAttributeType = Literal["MiddleNames", "PrefixTitles", "SuffixTitles"]
+    PERSON_ATTRIBUTE_TYPES = ("MiddleNames", "PrefixTitles", "SuffixTitles")
 
     @classmethod
     def add_person_attribute(cls, name: PersonAttributeType) -> None:
-        props = cls.get_owner_props()
-        if name == "MiddleNames":
-            props.middle_names.add()
-        elif name == "PrefixTitles":
-            props.prefix_titles.add()
-        elif name == "SuffixTitles":
-            props.suffix_titles.add()
-        else:
-            assert_never(name)
+        collection = cls.get_names_collection(name)
+        collection.add()
 
     @classmethod
     def remove_person_attribute(cls, name: PersonAttributeType, id: int) -> None:
-        props = cls.get_owner_props()
-        if name == "MiddleNames":
-            props.middle_names.remove(id)
-        elif name == "PrefixTitles":
-            props.prefix_titles.remove(id)
-        elif name == "SuffixTitles":
-            props.suffix_titles.remove(id)
-        else:
-            assert_never(name)
+        collection = cls.get_names_collection(name)
+        collection.remove(id)
 
     @classmethod
     def set_role(cls, role: ifcopenshell.entity_instance) -> None:

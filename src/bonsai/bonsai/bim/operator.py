@@ -42,12 +42,13 @@ from mathutils import Vector, Euler
 from math import radians
 from pathlib import Path
 from collections import namedtuple
-from typing import Union, TYPE_CHECKING
+from typing import Union, TYPE_CHECKING, Literal, get_args
 from collections.abc import Iterable
 from natsort import natsorted
 
 if TYPE_CHECKING:
     from bonsai.bim.prop import MultipleFileSelect, Attribute
+    from bpy.stub_internal import rna_enums
 
 
 class SetTab(bpy.types.Operator):
@@ -917,6 +918,7 @@ def update_enum_property_search_prop(self, context):
                 self.first_launch = False
             else:
                 if not self.should_click_ok:
+                    # This closes popup immediately, avoiding the need to click "OK".
                     context.window.screen = context.window.screen
             if predefined_type:
                 try:
@@ -1302,7 +1304,7 @@ class ShowSystemInfo(bpy.types.Operator):
         col.label(text="(The information has been copied to the clipboard.)")
 
 
-def update_attribute_search_value(self, context):
+def update_attribute_search_value(self: "BIM_OT_attribute_search_values", context: bpy.types.Context) -> None:
     should_click_ok = False
     attr_name, attribute_obj = BIM_OT_attribute_search_values.resolve_data_path(self.data_path)
 
@@ -1318,7 +1320,11 @@ def update_attribute_search_value(self, context):
         self.first_launch = False
     else:
         if not should_click_ok:
+            # This closes popup immediately, avoiding the need to click "OK".
             context.window.screen = context.window.screen
+
+
+AttributeSearchDataType = Literal["string", "integer", "float"]
 
 
 class BIM_OT_attribute_search_values(bpy.types.Operator):
@@ -1332,7 +1338,10 @@ class BIM_OT_attribute_search_values(bpy.types.Operator):
     attribute_name: bpy.props.StringProperty(name="Attribute Name")
     attribute_ifc_class: bpy.props.StringProperty(name="Attribute IFC Class")
     data_path: bpy.props.StringProperty(name="Data Path")
-    data_type: bpy.props.StringProperty(name="Data Type")
+    data_type: bpy.props.EnumProperty(
+        name="Data Type",
+        items=[(i, i, "") for i in get_args(AttributeSearchDataType)],
+    )
     search_value: bpy.props.StringProperty(
         name="Search",
         description="Search for attribute values",
@@ -1341,6 +1350,9 @@ class BIM_OT_attribute_search_values(bpy.types.Operator):
         options={"SKIP_SAVE"},
     )
     collection_values: bpy.props.CollectionProperty(type=StrProperty, options={"SKIP_SAVE"})
+
+    if TYPE_CHECKING:
+        data_type: AttributeSearchDataType
 
     @staticmethod
     def resolve_data_path(data_path: str) -> tuple[str, "Attribute"]:
@@ -1395,4 +1407,44 @@ class BIM_OT_attribute_search_values(bpy.types.Operator):
         )
 
     def execute(self, context):
+        return {"FINISHED"}
+
+
+class BIM_OT_attribute_add_subitem(bpy.types.Operator):
+    bl_idname = "bim.attribute_add_subitem"
+    bl_label = "Add Subitem"
+    bl_description = "Add subitem to the current attribute"
+    bl_options = {"REGISTER", "UNDO"}
+
+    data_path: bpy.props.StringProperty()
+    """Full data path."""
+
+    if TYPE_CHECKING:
+        data_path: str
+
+    def execute(self, context) -> set["rna_enums.OperatorReturnItems"]:
+        col: "bpy.types.bpy_prop_collection_idprop[StrProperty]"
+        col = eval(self.data_path)
+        col.add()
+        return {"FINISHED"}
+
+
+class BIM_OT_attribute_remove_subitem(bpy.types.Operator):
+    bl_idname = "bim.attribute_remove_subitem"
+    bl_label = "Add Subitem"
+    bl_description = "Add subitem to the current attribute"
+    bl_options = {"REGISTER", "UNDO"}
+
+    data_path: bpy.props.StringProperty()
+    """Full data path."""
+    index: bpy.props.IntProperty()
+
+    if TYPE_CHECKING:
+        data_path: str
+        index: int
+
+    def execute(self, context) -> set["rna_enums.OperatorReturnItems"]:
+        col: "bpy.types.bpy_prop_collection_idprop[StrProperty]"
+        col = eval(self.data_path)
+        col.remove(self.index)
         return {"FINISHED"}

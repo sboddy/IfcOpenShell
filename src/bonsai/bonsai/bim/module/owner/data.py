@@ -60,30 +60,15 @@ class RolesAddressesData:
         return results
 
     @classmethod
-    def get_address_list_attributes(cls, address: ifcopenshell.entity_instance) -> list[dict[str, Any]]:
-        results: list[dict[str, Any]] = []
-        props = tool.Owner.get_owner_props()
+    def get_address_list_attributes(cls, address: ifcopenshell.entity_instance) -> list[str]:
         if address.is_a("IfcPostalAddress"):
             names = ["AddressLines"]
         elif address.is_a("IfcTelecomAddress"):
             names = ["TelephoneNumbers", "FacsimileNumbers", "ElectronicMailAddresses", "MessagingIDs"]
         else:
             assert False, f"Unexpected entity: {address}"
-        for name in names:
-            if name == "AddressLines":
-                items = [{"id": id, "prop": prop} for id, prop in enumerate(props.address_lines)]
-            elif name == "TelephoneNumbers":
-                items = [{"id": id, "prop": prop} for id, prop in enumerate(props.telephone_numbers)]
-            elif name == "FacsimileNumbers":
-                items = [{"id": id, "prop": prop} for id, prop in enumerate(props.facsimile_numbers)]
-            elif name == "ElectronicMailAddresses":
-                items = [{"id": id, "prop": prop} for id, prop in enumerate(props.electronic_mail_addresses)]
-            elif name == "MessagingIDs":
-                items = [{"id": id, "prop": prop} for id, prop in enumerate(props.messaging_ids)]
-            else:
-                assert False, f"Unexpected name: {name}"
-            results.append({"name": name, "items": items})
-        return results
+
+        return names
 
 
 class PeopleData(RolesAddressesData):
@@ -106,7 +91,6 @@ class PeopleData(RolesAddressesData):
                     "name": cls.get_person_name(person),
                     "roles_label": ", ".join([r["label"] for r in roles]),
                     "is_engaged": bool(person.EngagedIn),
-                    "list_attributes": cls.get_person_list_attributes(person),
                     "roles": roles,
                     "addresses": cls.get_addresses(person),
                 }
@@ -124,23 +108,6 @@ class PeopleData(RolesAddressesData):
             full_name = "{} {}".format(person.GivenName or "", person.FamilyName or "").strip()
             name += f" ({full_name})"
         return name
-
-    @classmethod
-    def get_person_list_attributes(cls, person: ifcopenshell.entity_instance) -> list[dict[str, Any]]:
-        results: list[dict[str, Any]] = []
-        props = tool.Owner.get_owner_props()
-        name: tool.Owner.PersonAttributeType
-        for name in ("MiddleNames", "PrefixTitles", "SuffixTitles"):
-            if name == "MiddleNames":
-                items = [{"id": id, "prop": prop} for id, prop in enumerate(props.middle_names)]
-            elif name == "PrefixTitles":
-                items = [{"id": id, "prop": prop} for id, prop in enumerate(props.prefix_titles)]
-            elif name == "SuffixTitles":
-                items = [{"id": id, "prop": prop} for id, prop in enumerate(props.suffix_titles)]
-            else:
-                assert False, name
-            results.append({"name": name, "items": items})
-        return results
 
 
 class OrganisationsData(RolesAddressesData):
@@ -177,30 +144,28 @@ class OwnerData:
     @classmethod
     def load(cls):
         cls.data = {
-            "user_person": cls.get_user_person(),
-            "user_organisation": cls.get_user_organisation(),
-            "users": cls.get_users(),
+            "user_person": cls.user_person(),
+            "user_organisation": cls.user_organisation(),
+            "users": cls.users(),
         }
         cls.is_loaded = True
 
     @classmethod
-    def get_user_person(cls) -> tool.Blender.BLENDER_ENUM_ITEMS:
+    def user_person(cls) -> tool.Blender.BLENDER_ENUM_ITEMS:
         return [(str(p.id()), p[0] or "Unnamed", "") for p in tool.Ifc.get().by_type("IfcPerson")]
 
     @classmethod
-    def get_user_organisation(cls) -> tool.Blender.BLENDER_ENUM_ITEMS:
+    def user_organisation(cls) -> tool.Blender.BLENDER_ENUM_ITEMS:
         return [(str(p.id()), p[0] or "Unnamed", "") for p in tool.Ifc.get().by_type("IfcOrganization")]
 
     @classmethod
-    def get_users(cls) -> list[dict[str, Any]]:
-        props = tool.Owner.get_owner_props()
+    def users(cls) -> list[dict[str, Any]]:
         results: list[dict[str, Any]] = []
         for user in tool.Ifc.get().by_type("IfcPersonAndOrganization"):
             results.append(
                 {
                     "id": user.id(),
                     "label": "{} ({})".format(user.ThePerson[0] or "Unnamed", user.TheOrganization[0] or "Unnamed"),
-                    "is_active": props.active_user_id == user.id(),
                 }
             )
         return results
@@ -223,7 +188,14 @@ class ActorData:
         props = tool.Owner.get_owner_props()
         if not (ifc_class := props.actor_type):
             ifc_class = cls.actor_type()[0][0]
-        return [(str(p.id()), p[0] or "Unnamed", "") for p in tool.Ifc.get().by_type(ifc_class)]
+
+        def get_name(entity: ifcopenshell.entity_instance) -> str:
+            if entity.is_a() == "IfcPersonAndOrganization":
+                return f"{get_name(entity.ThePerson)}/{get_name(entity.TheOrganization)}"
+            # 0 IfcPerson/IfcOrganization Id(IFC2X3)/Identification
+            return entity[0] or "Unnamed"
+
+        return [(str(p.id()), get_name(p), "") for p in tool.Ifc.get().by_type(ifc_class)]
 
     @classmethod
     def actors(cls) -> list[dict[str, Any]]:

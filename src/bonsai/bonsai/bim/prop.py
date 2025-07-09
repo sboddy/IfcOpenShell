@@ -234,7 +234,9 @@ def update_attribute_value(self: "Attribute", context: bpy.types.Context) -> Non
 
 def update_is_null(self: "Attribute", context: bpy.types.Context) -> None:
     if self.is_null:
-        if self.data_type != "enum" and self.get_value() != (default := self.get_value_default()):
+        if self.data_type == "list[string]":
+            self.subitems_values.clear()
+        elif self.data_type != "enum" and self.get_value() != (default := self.get_value_default()):
             self.set_value(default)
         if self.is_null is not True:
             self.is_null = True
@@ -286,8 +288,8 @@ def get_display_name(self: "Attribute") -> str:
     return f"{name}, {unit_symbol}"
 
 
-AttributeDataType = Literal["string", "integer", "float", "boolean", "enum", "file"]
-AttributeSpecialType = Literal["", "DATE", "DATETIME", "LENGTH", "AREA", "VOLUME", "FORCE", "LOGICAL"]
+AttributeDataType = Literal["string", "integer", "float", "boolean", "enum", "file", "list[string]"]
+AttributeSpecialType = Literal["", "DATE", "DATETIME", "LENGTH", "AREA", "VOLUME", "FORCE", "LOGICAL", "URI"]
 
 
 class Attribute(PropertyGroup):
@@ -300,6 +302,8 @@ class Attribute(PropertyGroup):
         name="Data Type",
         items=[(i, i, "") for i in get_args(AttributeDataType)],
     )
+
+    # Value containers.
     string_value: StringProperty(name="Value", update=update_attribute_value, description=tooltip)
     bool_value: BoolProperty(name="Value", update=update_attribute_value, description=tooltip)
     int_value: IntProperty(
@@ -330,14 +334,17 @@ class Attribute(PropertyGroup):
     filepath_value: PointerProperty(type=MultipleFileSelect)
     filter_glob: StringProperty()
     is_null: BoolProperty(name="Is Null", update=update_is_null)
-    is_optional: BoolProperty(name="Is Optional")
-    is_uri: BoolProperty(name="Is Uri", default=False)
     is_selected: BoolProperty(name="Is Selected", default=False)
+    subitems_values: CollectionProperty(type=StrProperty)  # pyright: ignore[reportRedeclaration]
+
+    # Attribute parameters.
+    is_optional: BoolProperty(name="Is Optional")
     value_min: FloatProperty(description="This is used to validate int_value and float_value")
     value_min_constraint: BoolProperty(default=False, description="True if the numerical value has a lower bound")
     value_max: FloatProperty(description="This is used to validate int_value and float_value")
     value_max_constraint: BoolProperty(default=False, description="True if the numerical value has an upper bound")
     special_type: StringProperty(name="Special Value Type", default="")
+    use_explorer_ui: BoolProperty()  # pyright: ignore[reportRedeclaration]
     metadata: StringProperty(name="Metadata", description="For storing some additional information about the attribute")
     update: StringProperty(name="Update", description="Custom update function to be executed")
 
@@ -360,23 +367,28 @@ class Attribute(PropertyGroup):
         filepath_value: MultipleFileSelect
         filter_glob: str
         is_null: bool
-        is_optional: bool
-        is_uri: bool
         is_selected: bool
+        subitems_values: bpy.types.bpy_prop_collection_idprop[StrProperty]
+
+        is_optional: bool
         value_min: float
         value_min_constraint: bool
         value_max: float
         value_max_constraint: bool
+        use_explorer_ui: bool
         metadata: str
         update: str
 
-    def get_value(self) -> Union[str, float, int, bool, None]:
+    def get_value(self) -> Union[str, float, int, bool, list[str], None]:
         if self.is_optional and self.is_null:
             return None
         if self.data_type == "string":
             return self.string_value.replace("\\n", "\n")
         if self.data_type == "file":
             return [f.name for f in self.filepath_value.file_list]
+        elif self.data_type == "list[string]":
+            return [s.name for s in self.subitems_values]
+
         value_name = self.get_value_name()
         if value_name == "enum_value":
             value = tool.Blender.get_enum_safe(self, "enum_value")
@@ -387,7 +399,7 @@ class Attribute(PropertyGroup):
             value = value == "TRUE"
         return value
 
-    def get_value_default(self) -> Union[str, float, int, bool]:
+    def get_value_default(self) -> Union[str, float, int, bool, list[str]]:
         data_type = self.data_type
         if data_type == "string":
             return ""
@@ -401,10 +413,12 @@ class Attribute(PropertyGroup):
             return "0"
         elif data_type == "file":
             return ""
+        elif data_type == "list[string]":
+            return []
         else:
             assert_never(data_type)
 
-    def get_value_name(self, display_only: bool = False) -> str:
+    def get_value_name(self, display_only: bool = False):
         """Get name of the value attribute.
 
         :param display_only: Should be `True` if the value won't be accessed directly
@@ -425,6 +439,8 @@ class Attribute(PropertyGroup):
             return "enum_value"
         elif data_type == "file":
             return "filepath_value"
+        elif data_type == "list[string]":
+            return "subitems_values"
         else:
             assert_never(data_type)
 

@@ -83,6 +83,22 @@ def draw_attribute(
         prop_with_search(layout, attribute, "enum_value", text=attribute.name)
     elif value_name == "filepath_value":
         attribute.filepath_value.layout_file_select(layout, filter_glob=attribute.filter_glob, text=attribute.name)
+
+    elif value_name == "subitems_values":
+        col = layout.column()
+        layout = col.row(align=True)
+        layout.label(text=f"{attribute.name}:")
+        data_path = tool.Blender.get_full_data_path(attribute, value_name)
+        for i, item in enumerate(attribute.subitems_values, 1):
+            row = col.row(align=True)
+            row.alignment = "EXPAND"
+            row.prop(item, "name", text=f"# {i}")
+            op = row.operator("bim.attribute_remove_subitem", text="", icon="X")
+            op.data_path = data_path
+            op.index = i - 1
+        op = layout.operator("bim.attribute_add_subitem", icon="ADD", text="")
+        op.data_path = data_path
+
     elif attribute.name in ("ScheduleDuration", "ActualDuration", "FreeFloat", "TotalFloat"):
         props = tool.Sequence.get_work_schedule_props()
         for item in props.durations_attributes:
@@ -103,7 +119,7 @@ def draw_attribute(
             text=attribute.display_name,
         )
 
-    if attribute.is_uri:
+    if attribute.special_type == "URI":
         op = layout.operator("bim.select_uri_attribute", text="", icon="FILE_FOLDER")
         op.data_path = attribute.path_from_id("string_value")
     elif attribute.special_type in ("DATE", "DATETIME"):
@@ -120,6 +136,14 @@ def draw_attribute(
 
     if attribute.is_optional:
         layout.prop(attribute, "is_null", icon="RADIOBUT_OFF" if attribute.is_null else "RADIOBUT_ON", text="")
+
+    if attribute.use_explorer_ui:
+        op = layout.operator("bim.explorer_show_ui_popup", text="", icon="ZOOM_SELECTED")
+        op.ifc_class = attribute.ifc_class
+        op.attribute_name = attribute.name
+        op.data_path = tool.Blender.get_full_data_path(attribute, value_name)
+        if ifc_id := attribute.get_value():
+            op.preselect_ifc_id = int(ifc_id)
 
     if attribute.name == "GlobalId":
         layout.operator("bim.generate_global_id", icon="FILE_REFRESH", text="")
@@ -167,15 +191,19 @@ def import_attribute(
 ) -> None:
     data_type = ifcopenshell.util.attribute.get_primitive_type(attribute)
     # Complex data types (aggregates and entities) are handled only by callback.
+    if data_type == ("list", "string"):
+        data_type = "list[string]"
     if isinstance(data_type, tuple) or data_type == "entity":
         callback(attribute.name(), None, data) if callback else None
         return
-    new: bonsai.bim.prop.Attribute = props.add()
+
+    new = props.add()
     new.name = attribute.name()
     new.is_null = data[attribute.name()] is None
     new.is_optional = attribute.optional()
     new.data_type = data_type if isinstance(data_type, str) else ""
     new.ifc_class = data["type"]
+
     is_handled_by_callback = callback(attribute.name(), new, data) if callback else None
     data_type = new.data_type  # Allow callback to override data type.
 
@@ -185,8 +213,9 @@ def import_attribute(
         props.remove(len(props) - 1)
     elif data_type == "string":
         new.string_value = "" if new.is_null else str(data[attribute.name()]).replace("\n", "\\n")
-        if attribute.type_of_attribute().declared_type().name() == "IfcURIReference":
-            new.is_uri = True
+        attribute_type = attribute.type_of_attribute()
+        if attribute_type._is("IfcURIReference"):
+            new.special_type = "URI"
         elif attribute.type_of_attribute()._is("IfcDate"):
             new.special_type = "DATE"
         elif attribute.type_of_attribute()._is("IfcDateTime"):
@@ -220,6 +249,12 @@ def import_attribute(
 
         if enum_value is not None:
             new.enum_value = enum_value
+    elif data_type == "list[string]":
+        value: Union[list[str], None] = data[attribute.name()]
+        if value:
+            for item in value:
+                new.subitems_values.add().name = str(item).replace("\n", "\\n")
+
     add_attribute_description(new, data)
     add_attribute_min_max(attribute, new)
 
@@ -287,13 +322,14 @@ def export_attributes(
     return attributes
 
 
-def process_exported_entity_attribute(attributes: dict[str, Any], attribute_name: str) -> None:
-    entity_id = attributes[attribute_name]
-    if entity_id is None:
-        # Maybe it was removed by now and enum is invalid.
-        del attributes[attribute_name]
-    else:
-        attributes[attribute_name] = tool.Ifc.get().by_id(int(entity_id))
+def process_exported_entity_attribute(attributes: dict[str, Any], attribute_names: list[str]) -> None:
+    for attribute_name in attribute_names:
+        entity_id = attributes[attribute_name]
+        if entity_id is None:
+            # Maybe it was removed by now and enum is invalid.
+            del attributes[attribute_name]
+        else:
+            attributes[attribute_name] = tool.Ifc.get().by_id(int(entity_id))
 
 
 ENUM_ITEMS_DATA = Union[bpy.types.PropertyGroup, bpy.types.ID, bpy.types.Operator, bpy.types.OperatorProperties]
