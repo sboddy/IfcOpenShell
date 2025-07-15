@@ -230,17 +230,17 @@ namespace ifcopenshell {
 
 			struct ContextIds : public SettingBase<ContextIds, std::set<int>> {
 				static constexpr const char* const name = "context-ids";
-				static constexpr const char* const description = "";
+				static constexpr const char* const description = "List of comma separated context ids to process - e.g. '15,29' (no quotes needed).";
 			};
 
-			struct ContextTypes : public SettingBase<ContextIds, std::set<std::string>> {
+			struct ContextTypes : public SettingBase<ContextTypes, std::set<std::string>> {
 				static constexpr const char* const name = "context-types";
-				static constexpr const char* const description = "";
+				static constexpr const char* const description = "Currently option has no effect.";
 			};
 
-			struct ContextIdentifiers : public SettingBase<ContextIds, std::set<std::string>> {
+			struct ContextIdentifiers : public SettingBase<ContextIdentifiers, std::set<std::string>> {
 				static constexpr const char* const name = "context-identifiers";
-				static constexpr const char* const description = "";
+				static constexpr const char* const description = "Currently option has no effect.";
 			};
 
 			enum OutputDimensionalityTypes {
@@ -253,7 +253,10 @@ namespace ifcopenshell {
 
 			struct OutputDimensionality : public SettingBase<OutputDimensionality, OutputDimensionalityTypes> {
 				static constexpr const char* const name = "dimensionality";
-				static constexpr const char* const description = "Specifies whether to include curves and/or surfaces and solids in the output result. Defaults to only surfaces and solids.";
+				static constexpr const char* const description =
+					"Specifies whether to include curves and/or surfaces and solids in the output result. "
+					"Defaults to only surfaces and solids (SURFACES_AND_SOLIDS). "
+					"Other possible values are CURVES, CURVES_SURFACES_AND_SOLIDS.";
 				static constexpr OutputDimensionalityTypes defaultvalue = SURFACES_AND_SOLIDS;
 			};
 

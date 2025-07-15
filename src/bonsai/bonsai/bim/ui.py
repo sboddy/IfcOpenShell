@@ -19,6 +19,7 @@
 import os
 import bpy
 import platform
+import platformdirs
 import bonsai.bim.helper
 from pathlib import Path
 from bpy.types import Panel
@@ -35,11 +36,13 @@ import bonsai.bim
 import bonsai.tool as tool
 from ifcopenshell.util.file import IfcHeaderExtractor
 from bonsai.bim.prop import Attribute
-from typing import Optional, TYPE_CHECKING
+from typing import Optional, TYPE_CHECKING, Literal
 from natsort import natsorted
 
 
 class IFCFileSelector:
+    layout: bpy.types.UILayout
+
     # Avoid overriding blender prop annotations at runtime.
     if TYPE_CHECKING:
         filepath: str
@@ -76,6 +79,7 @@ class IFCFileSelector:
         assert isinstance(context.space_data, bpy.types.SpaceFileBrowser)
         # Access filepath & Directory https://blender.stackexchange.com/a/207665
         params = context.space_data.params
+        assert params
         # Decode byte string https://stackoverflow.com/a/47737082/
         directory = Path(params.directory.decode("utf-8"))
         filepath = os.path.join(directory, params.filename)
@@ -122,6 +126,7 @@ class BIM_PT_section_plane(Panel):
     bl_parent_id = "BIM_PT_tab_sandbox"
 
     def draw(self, context):
+        assert self.layout
         layout = self.layout
         layout.use_property_split = True
         props = tool.Blender.get_bim_props()
@@ -145,6 +150,7 @@ class BIM_PT_section_with_cappings(Panel):
     bl_parent_id = "BIM_PT_tab_sandbox"
 
     def draw(self, context):
+        assert self.layout
         layout = self.layout
         wm = context.window_manager
         row = layout.row(align=True)
@@ -189,7 +195,16 @@ class BIM_UL_clipping_plane(bpy.types.UIList):
 
 
 class BIM_UL_generic(bpy.types.UIList):
-    def draw_item(self, context, layout, data, item, icon, active_data, active_propname):
+    def draw_item(
+        self,
+        context,
+        layout: bpy.types.UILayout,
+        data,
+        item: bpy.types.PropertyGroup,
+        icon,
+        active_data,
+        active_propname,
+    ) -> None:
         if item:
             layout.prop(item, "name", text="", emboss=False)
         else:
@@ -203,6 +218,98 @@ class BIM_UL_topics(bpy.types.UIList):
             layout.prop(item, "title", text="", emboss=False)
         else:
             layout.label(text="", translate=False)
+
+
+class DocPreferences(bpy.types.PropertyGroup):
+    sheets_dir: StringProperty(
+        default=os.path.join("sheets") + os.path.sep,
+        name="Default Sheets Directory",
+    )
+    layouts_dir: StringProperty(
+        default=os.path.join("layouts") + os.path.sep,
+        name="Default Layouts Directory",
+    )
+    titleblocks_dir: StringProperty(
+        default=os.path.join("layouts", "titleblocks") + os.path.sep,
+        name="Default Titleblocks Directory",
+    )
+    drawings_dir: StringProperty(
+        default=os.path.join("drawings") + os.path.sep,
+        name="Default Drawings Directory",
+    )
+    stylesheet_path: StringProperty(
+        default=os.path.join("drawings", "assets", "default.css"),
+        name="Default Stylesheet",
+    )
+    schedules_stylesheet_path: StringProperty(
+        default=os.path.join("drawings", "assets", "schedule.css"),
+        name="Default Stylesheet for Schedules",
+    )
+    markers_path: StringProperty(
+        default=os.path.join("drawings", "assets", "markers.svg"),
+        name="Default Markers",
+    )
+    symbols_path: StringProperty(
+        default=os.path.join("drawings", "assets", "symbols.svg"),
+        name="Default Symbols",
+    )
+    patterns_path: StringProperty(
+        default=os.path.join("drawings", "assets", "patterns.svg"),
+        name="Default Patterns",
+    )
+    shadingstyles_path: StringProperty(
+        default=os.path.join("drawings", "assets", "shading_styles.json"),
+        name="Default Shading Styles",
+    )
+    shadingstyle_default: StringProperty(
+        default="Blender Default",
+        name="Default Shading Style",
+    )
+    drawing_font: StringProperty(
+        default="OpenGost Type B TT.ttf",
+        name="Drawing Font",
+    )
+    magic_font_scale: bpy.props.FloatProperty(
+        default=0.004118616,
+        name="Font Scale Factor",
+    )
+    imperial_precision: StringProperty(
+        default="1/32",
+        name="Imperial Precision",
+    )
+    tolerance: bpy.props.FloatProperty(
+        default=0.00001,
+        name="A tolerance used when selecting objects",
+    )
+    classes_to_wireframe: StringProperty(
+        default="IfcVirtualElement",
+        name="Classes to Wireframe",
+        description="Upon import, these classes will display as wireframe.\nEx: IfcVirtualelement, IfcSpace",
+    )
+    classes_no_cut: StringProperty(
+        default="IfcVirtualElement, IfcSpace",
+        name="Classes that are not cut",
+        description="The cut decoractor will be turned off for these classes\nEx: IfcVirtualelement, IfcSpace",
+    )
+
+    if TYPE_CHECKING:
+        sheets_dir: str
+        layouts_dir: str
+        titleblocks_dir: str
+        drawings_dir: str
+        stylesheet_path: str
+        schedules_stylesheet_path: str
+        markers_path: str
+        symbols_path: str
+        patterns_path: str
+        shadingstyles_path: str
+        shadingstyle_default: str
+        drawing_font: str
+        magic_font_scale: float
+        imperial_precision: str
+        tolerance: float
+        classes_to_wireframe: str
+        classes_no_cut: str
 
 
 class BIM_ADDON_preferences(bpy.types.AddonPreferences):
@@ -320,6 +427,53 @@ class BIM_ADDON_preferences(bpy.types.AddonPreferences):
         description="When modifying openings, other elements of the model will display with some transparency.\n0 is fully transparent and 100 is fully opaque",
     )
 
+    bsdd_load_preview_dictionaries: BoolProperty(
+        name="Load Preview Dictionaries", description="Load dictionaries marked as Preview status", default=False
+    )
+    bsdd_load_inactive_dictionaries: BoolProperty(
+        name="Load Inactive Dictionaries", description="Load dictionaries marked as Inactive status", default=False
+    )
+    bsdd_load_test_dictionaries: BoolProperty(
+        name="Load Test Dictionaries", description="Load dictionaries that are for testing only", default=False
+    )
+    should_disable_undo_on_save: BoolProperty(
+        name="Disable Undo When Saving (Faster saves, no undo for you!)", default=False
+    )
+    should_stream: BoolProperty(name="Stream Data From IFC-SPF (Only for advanced users)", default=False)
+    occurrence_name_style: bpy.props.EnumProperty(
+        items=[("CLASS", "By Class", ""), ("TYPE", "By Type", ""), ("CUSTOM", "Custom", "")],
+        name="Occurrence Name Style",
+    )
+    occurrence_name_function: bpy.props.StringProperty(
+        name="Occurrence Name Function",
+        description="Code that will be evaluated to generate occurrence name for CUSTOM occurrence name style",
+    )
+
+    def update_data_dir(self, context: bpy.types.Context) -> None:
+        import bonsai.bim.schema
+
+        bonsai.bim.schema.ifc.data_dir = self.data_dir
+
+    def update_cache_dir(self, context: bpy.types.Context) -> None:
+        import bonsai.bim.schema
+
+        bonsai.bim.schema.ifc.cache_dir = self.cache_dir
+
+    data_dir: StringProperty(
+        default=(platformdirs.user_data_path("bonsai", roaming=True, ensure_exists=True) / "data").__str__(),
+        name="Data Directory",
+        update=update_data_dir,
+    )
+    cache_dir: StringProperty(
+        default=platformdirs.user_cache_dir("bonsai"), name="Cache Directory", update=update_cache_dir
+    )
+
+    pset_dir: StringProperty(
+        default=os.path.join("psets") + os.path.sep,
+        name="Default Psets Directory",
+    )
+    doc: bpy.props.PointerProperty(type=DocPreferences)
+
     if TYPE_CHECKING:
         svg2pdf_command: str
         svg2dxf_command: str
@@ -341,6 +495,17 @@ class BIM_ADDON_preferences(bpy.types.AddonPreferences):
         decorator_color_error: tuple[float, float, float, float]
         decorator_color_background: tuple[float, float, float, float]
         opening_focus_opacity: int
+        bsdd_load_preview_dictionaries: bool
+        bsdd_load_inactive_dictionaries: bool
+        bsdd_load_test_dictionaries: bool
+        should_disable_undo_on_save: bool
+        should_stream: bool
+        occurrence_name_style: Literal["CLASS", "TYPE", "CUSTOM"]
+        occurrence_name_function: str
+        data_dir: str
+        cache_dir: str
+        pset_dir: str
+        doc: DocPreferences
 
     def draw(self, context: bpy.types.Context) -> None:
         layout = self.layout
@@ -381,29 +546,26 @@ class BIM_ADDON_preferences(bpy.types.AddonPreferences):
         layout.prop(self, "spatial_elements_unselectable")
 
     def draw_model_settings(self, layout: bpy.types.UILayout, context: bpy.types.Context) -> None:
-        props = tool.Model.get_model_props()
-        layout.prop(props, "occurrence_name_style")
-        if props.occurrence_name_style == "CUSTOM":
-            layout.prop(props, "occurrence_name_function")
+        layout.prop(self, "occurrence_name_style")
+        if self.occurrence_name_style == "CUSTOM":
+            layout.prop(self, "occurrence_name_function")
 
     def draw_directories(self, layout: bpy.types.UILayout, context: bpy.types.Context) -> None:
-        props = tool.Blender.get_bim_props()
         row = layout.row(align=True)
-        row.prop(props, "data_dir")
-        row.operator("bim.select_dir", icon="FILE_FOLDER", text="").data_path = "scene.BIMProperties.data_dir"
+        row.prop(self, "data_dir")
+        row.operator("bim.select_dir", icon="FILE_FOLDER", text="").data_path = "preferences.data_dir"
 
         row = layout.row(align=True)
-        row.prop(props, "cache_dir")
-        row.operator("bim.select_dir", icon="FILE_FOLDER", text="").data_path = "scene.BIMProperties.cache_dir"
+        row.prop(self, "cache_dir")
+        row.operator("bim.select_dir", icon="FILE_FOLDER", text="").data_path = "preferences.cache_dir"
 
         row = layout.row(align=True)
         row.prop(self, "tmp_dir")
         row.operator("bim.select_dir", icon="FILE_FOLDER", text="").data_path = "preferences.tmp_dir"
 
     def draw_drawing_settings(self, layout: bpy.types.UILayout, context: bpy.types.Context) -> None:
-        props = tool.Blender.get_bim_props()
-        layout.prop(props, "pset_dir")
-        dprops = tool.Drawing.get_document_props()
+        layout.prop(self, "pset_dir")
+        dprops = self.doc
         layout.prop(dprops, "sheets_dir")
         layout.prop(dprops, "layouts_dir")
         layout.prop(dprops, "titleblocks_dir")
@@ -433,14 +595,12 @@ class BIM_ADDON_preferences(bpy.types.AddonPreferences):
 
     def draw_other_settings(self, layout: bpy.types.UILayout, context: bpy.types.Context) -> None:
         layout.prop(self, "opening_focus_opacity")
-        props = tool.Project.get_project_props()
-        layout.prop(props, "should_disable_undo_on_save")
-        layout.prop(props, "should_stream")
-        bprops = tool.Bsdd.get_bsdd_props()
+        layout.prop(self, "should_disable_undo_on_save")
+        layout.prop(self, "should_stream")
         layout.label(text="bSDD:")
-        layout.prop(bprops, "load_preview_dictionaries")
-        layout.prop(bprops, "load_inactive_dictionaries")
-        layout.prop(bprops, "load_test_dictionaries")
+        layout.prop(self, "bsdd_load_preview_dictionaries")
+        layout.prop(self, "bsdd_load_inactive_dictionaries")
+        layout.prop(self, "bsdd_load_test_dictionaries")
 
 
 # Scene panel groups

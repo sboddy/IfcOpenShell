@@ -17,12 +17,11 @@
 # along with IfcOpenShell.  If not, see <http://www.gnu.org/licenses/>.
 
 import ifcopenshell
+import ifcopenshell.api.alignment
 from ifcopenshell import entity_instance
 
 import math
 from collections.abc import Sequence
-
-import ifcopenshell.api.alignment.create_layout_segment
 
 
 def layout_horizontal_alignment_by_pi_method(

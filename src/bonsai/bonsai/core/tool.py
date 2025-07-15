@@ -543,7 +543,6 @@ class Material:
     def ensure_material_assigned(cls, elements, material_type, material): pass
     def ensure_material_unassigned(cls, elements): pass
     def ensure_new_material_set_is_valid(cls, material): pass
-    def get_active_material_item(cls): pass
     def get_active_material_type(cls): pass
     def get_default_material(cls): pass
     def get_elements_by_material(cls, material): pass
@@ -933,7 +932,7 @@ class Spatial:
     def filter_products(cls, products, action): pass
     def get_active_container(cls): pass
     def get_container(cls, element): pass
-    def get_decomposed_elements(cls, container): pass
+    def get_decomposed_elements(cls, container, recursive): pass
     def get_object_matrix(cls, obj): pass
     def get_relative_object_matrix(cls, target_obj, relative_to_obj): pass
     def get_selected_product_types(cls): pass

@@ -96,7 +96,7 @@ def is_editing_project_library_update(self: "BIMProjectProperties", context: bpy
         self.editing_project_library_id = int(self.selected_project_library)
         project_library = library_file.by_id(int(self.selected_project_library))
         self.project_library_attributes.clear()
-        bonsai.bim.helper.import_attributes2(project_library, self.project_library_attributes)
+        bonsai.bim.helper.import_attributes(project_library, self.project_library_attributes)
         self.parent_library = str(tool.Project.get_parent_library(project_library).id())
         ProjectLibraryData.load()  # Show edit icon in enum.
         return
@@ -300,7 +300,6 @@ class BIMProjectProperties(PropertyGroup):
     )
     should_use_cpu_multiprocessing: BoolProperty(name="CPU Multiprocessing", default=True)
     should_merge_materials_by_colour: BoolProperty(name="Merge Materials by Colour", default=False)
-    should_stream: BoolProperty(name="Stream Data From IFC-SPF (Only for advanced users)", default=False)
     should_load_geometry: BoolProperty(name="Load Geometry", default=True)
     should_clean_mesh: BoolProperty(
         name="Clean Meshes",
@@ -361,9 +360,6 @@ class BIMProjectProperties(PropertyGroup):
         name="Load Indexed Maps",
         description="Load indexed maps (UV and color maps)",
         default=True,
-    )
-    should_disable_undo_on_save: BoolProperty(
-        name="Disable Undo When Saving (Faster saves, no undo for you!)", default=False
     )
     links: CollectionProperty(name="Links", type=Link)
     active_link_index: IntProperty(name="Active Link Index")
@@ -458,7 +454,6 @@ class BIMProjectProperties(PropertyGroup):
         geometry_library: Literal["opencascade", "cgal", "cgal-simple", "hybrid-cgal-simple-opencascade"]
         should_use_cpu_multiprocessing: bool
         should_merge_materials_by_colour: bool
-        should_stream: bool
         should_load_geometry: bool
         should_clean_mesh: bool
         should_cache: bool
@@ -474,7 +469,6 @@ class BIMProjectProperties(PropertyGroup):
         element_offset: int
         element_limit: int
         load_indexed_maps: bool
-        should_disable_undo_on_save: bool
         links: bpy.types.bpy_prop_collection_idprop[Link]
         active_link_index: int
         export_schema: str

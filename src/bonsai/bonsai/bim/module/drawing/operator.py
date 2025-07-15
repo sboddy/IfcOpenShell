@@ -874,6 +874,7 @@ class CreateDrawing(bpy.types.Operator):
         cached_linework -= edited_guids
 
         bim_props = tool.Blender.get_bim_props()
+        prefs = tool.Blender.get_addon_preferences()
         files = {bim_props.ifc_file: tool.Ifc.get()}
 
         props = tool.Project.get_project_props()
@@ -890,7 +891,7 @@ class CreateDrawing(bpy.types.Operator):
             # Don't use draw.main() just whilst we're prototyping and experimenting
             # TODO: hash paths are never used
             ifc_hash = hashlib.md5(ifc_path.encode("utf-8")).hexdigest()
-            ifc_cache_path = os.path.join(bim_props.cache_dir, f"{ifc_hash}.h5")
+            ifc_cache_path = os.path.join(prefs.cache_dir, f"{ifc_hash}.h5")
 
             self.serialiser.setFile(ifc)
             drawing_elements = tool.Drawing.get_drawing_elements(self.camera_element, ifc_file=ifc)
@@ -1470,6 +1471,9 @@ class CreateDrawing(bpy.types.Operator):
                 classes.add(el.attrib["{http://www.ifcopenshell.org/ns}guid"])
                 is_closed_polygon = False
                 for path in el.findall("{http://www.w3.org/2000/svg}path"):
+                    # Temporary hack.
+                    if "d" not in path.attrib:
+                        continue
                     for subpath in path.attrib["d"].split("M")[1:]:
                         subpath_co = "M" + subpath.strip(" Z")
                         # Round due to inaccuracies from Blender meshes and bisection
@@ -1845,8 +1849,8 @@ class AddDrawingToSheet(bpy.types.Operator, tool.Ifc.Operator):
     def poll(cls, context):
         props = tool.Drawing.get_document_props()
         # Won't be visible in UI anyway.
-        bim_props = tool.Blender.get_bim_props()
-        if not props.sheets or not bim_props.data_dir:
+        prefs = tool.Blender.get_addon_preferences()
+        if not props.sheets or not prefs.data_dir:
             return False
         if not tool.Drawing.get_active_drawing_item():
             cls.poll_message_set("No drawing selected.")
@@ -1951,8 +1955,8 @@ class CreateSheets(bpy.types.Operator, tool.Ifc.Operator):
         if not tool.Drawing.get_active_sheet_item(is_sheet=True):
             cls.poll_message_set("No sheet selected.")
             return False
-        bim_props = tool.Blender.get_bim_props()
-        return props.sheets and bim_props.data_dir
+        prefs = tool.Blender.get_addon_preferences()
+        return props.sheets and prefs.data_dir
 
     def invoke(self, context, event):
         # opening all sheets on shift+click
@@ -2139,7 +2143,10 @@ class ActivateModel(bpy.types.Operator):
     bl_idname = "bim.activate_model"
     bl_label = "Activate Model"
     bl_options = {"REGISTER", "UNDO"}
-    bl_description = "Activate the model view, hide all annotations"
+    bl_description = (
+        "Activate the model view.\n\n"
+        "Show all objects (and apply status filters if they were enabled before) and hide all annotations."
+    )
 
     def execute(self, context):
         dprops = tool.Drawing.get_document_props()
@@ -2169,7 +2176,7 @@ class ActivateModel(bpy.types.Operator):
         if not bpy.app.background:
             with context.temp_override(**tool.Blender.get_viewport_context()):
                 bpy.ops.object.hide_view_clear()
-                bpy.ops.bim.activate_status_filters()
+                bpy.ops.bim.activate_status_filters(only_if_enabled=True)
 
         for obj in context.visible_objects:
             element = tool.Ifc.get_entity(obj)
@@ -2735,8 +2742,8 @@ class AddScheduleToSheet(bpy.types.Operator, tool.Ifc.Operator):
         if not props.schedules:
             cls.poll_message_set("No schedule selected.")
             return False
-        bim_props = tool.Blender.get_bim_props()
-        return props.schedules and props.sheets and bim_props.data_dir
+        prefs = tool.Blender.get_addon_preferences()
+        return props.schedules and props.sheets and prefs.data_dir
 
     def _execute(self, context):
         props = tool.Drawing.get_document_props()
@@ -3039,7 +3046,7 @@ class AddTextLiteral(bpy.types.Operator):
             "Path": "RIGHT",
             "BoxAlignment": "bottom_left",
         }
-        # emulates `bonsai.bim.helper.import_attributes2(ifc_literal, literal_props.attributes)`
+        # emulates `bonsai.bim.helper.import_attributes(ifc_literal, literal_props.attributes)`
         for attr_name in literal_attr_values:
             attr = literal_attributes.add()
             attr.name = attr_name

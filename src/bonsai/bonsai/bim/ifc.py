@@ -105,7 +105,7 @@ class IfcStore:
         IfcStore.session_files = {}
 
     @staticmethod
-    def get_file():
+    def get_file() -> ifcopenshell.file | None:
         if IfcStore.file is None:
             props = tool.Blender.get_bim_props()
             IfcStore.set_path(props.ifc_file)
@@ -117,20 +117,20 @@ class IfcStore:
         return IfcStore.file
 
     @staticmethod
-    def set_path(value):
+    def set_path(value: str) -> None:
         IfcStore.path = value
         # Interpret relative paths as relative to .blend file.
         if IfcStore.path and not os.path.isabs(IfcStore.path):
             IfcStore.path = os.path.abspath(os.path.join(bpy.path.abspath("//"), IfcStore.path))
 
     @staticmethod
-    def get_cache():
+    def get_cache() -> ifcopenshell.geom.serializers.hdf5 | None:
         if IfcStore.cache is None and IfcStore.path:
-            props = tool.Blender.get_bim_props()
+            prefs = tool.Blender.get_addon_preferences()
             ifc_key = IfcStore.path + IfcStore.file.wrapped_data.header.file_name.time_stamp
             ifc_hash = hashlib.md5(ifc_key.encode("utf-8")).hexdigest()
-            os.makedirs(props.cache_dir, exist_ok=True)
-            IfcStore.cache_path = os.path.join(props.cache_dir, f"{ifc_hash}.h5")
+            os.makedirs(prefs.cache_dir, exist_ok=True)
+            IfcStore.cache_path = os.path.join(prefs.cache_dir, f"{ifc_hash}.h5")
             cache_path = Path(IfcStore.cache_path)
             cache_settings = ifcopenshell.geom.settings()
             serializer_settings = ifcopenshell.geom.serializer_settings()
@@ -163,15 +163,15 @@ class IfcStore:
         return IfcStore.cache
 
     @staticmethod
-    def update_cache():
+    def update_cache() -> None:
         if not IfcStore.cache:
             return
         assert IfcStore.cache_path
         assert IfcStore.file
         ifc_key = IfcStore.path + IfcStore.file.wrapped_data.header.file_name.time_stamp
         ifc_hash = hashlib.md5(ifc_key.encode("utf-8")).hexdigest()
-        props = tool.Blender.get_bim_props()
-        new_cache_path = os.path.join(props.cache_dir, f"{ifc_hash}.h5")
+        prefs = tool.Blender.get_addon_preferences()
+        new_cache_path = os.path.join(prefs.cache_dir, f"{ifc_hash}.h5")
         IfcStore.cache = None
         try:
             shutil.move(IfcStore.cache_path, new_cache_path)
@@ -183,11 +183,11 @@ class IfcStore:
         IfcStore.get_cache()
 
     @staticmethod
-    def load_file(path) -> None:
+    def load_file(path: str) -> None:
         if not os.path.isfile(path):
             return
         extension = path.split(".")[-1]
-        props = tool.Project.get_project_props()
+        prefs = tool.Blender.get_addon_preferences()
         if extension.lower() == "ifczip":
             with tempfile.TemporaryDirectory() as unzipped_path:
                 with zipfile.ZipFile(path, "r") as zip_ref:
@@ -197,7 +197,7 @@ class IfcStore:
                     return
         elif extension.lower() == "ifcxml":
             IfcStore.file = ifcopenshell.file(ifcopenshell.ifcopenshell_wrapper.parse_ifcxml(path))
-        elif props.should_stream:
+        elif prefs.should_stream:
             IfcStore.file = ifcopenshell.open(path, should_stream=True)
         else:
             IfcStore.file = ifcopenshell.open(path)

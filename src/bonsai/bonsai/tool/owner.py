@@ -91,13 +91,13 @@ class Owner(bonsai.core.tool.Owner):
 
         address = cls.get_address()
 
-        def callback(name: str, prop, data: dict[str, Any]) -> None:
+        def callback(name: str, prop: object, data: dict[str, Any]) -> None:
             if name in cls.ADDREESS_ATTRIBUTE_TYPES:
                 collection = cls.get_address_collection(name)
                 for line in data[name] or []:
                     collection.add().name = line
 
-        bonsai.bim.helper.import_attributes(address.is_a(), props.address_attributes, address.get_info(), callback)
+        bonsai.bim.helper.import_attributes(address, props.address_attributes, callback)
 
     @classmethod
     def clear_address(cls) -> None:
@@ -154,7 +154,7 @@ class Owner(bonsai.core.tool.Owner):
         organisation = tool.Ifc.get().by_id(props.active_organisation_id)
         props.organisation_attributes.clear()
 
-        bonsai.bim.helper.import_attributes("IfcOrganization", props.organisation_attributes, organisation.get_info())
+        bonsai.bim.helper.import_attributes(organisation, props.organisation_attributes)
 
     @classmethod
     def clear_organisation(cls) -> None:
@@ -209,7 +209,7 @@ class Owner(bonsai.core.tool.Owner):
                 for name_ in data[name] or []:
                     collection.add().name = name_ or ""
 
-        bonsai.bim.helper.import_attributes("IfcPerson", props.person_attributes, person.get_info(), callback)
+        bonsai.bim.helper.import_attributes(person, props.person_attributes, callback)
 
     @classmethod
     def clear_person(cls) -> None:
@@ -253,7 +253,7 @@ class Owner(bonsai.core.tool.Owner):
         role = cls.get_role()
         props = cls.get_owner_props()
         props.role_attributes.clear()
-        bonsai.bim.helper.import_attributes("IfcActorRole", props.role_attributes, role.get_info())
+        bonsai.bim.helper.import_attributes(role, props.role_attributes)
 
     @classmethod
     def clear_role(cls) -> None:
@@ -279,7 +279,7 @@ class Owner(bonsai.core.tool.Owner):
     def import_actor_attributes(cls, actor: ifcopenshell.entity_instance) -> None:
         props = cls.get_owner_props()
         props.actor_attributes.clear()
-        bonsai.bim.helper.import_attributes2(actor, props.actor_attributes)
+        bonsai.bim.helper.import_attributes(actor, props.actor_attributes)
 
     @classmethod
     def clear_actor(cls) -> None:
@@ -329,13 +329,11 @@ class Owner(bonsai.core.tool.Owner):
                 new.enum_value = str(data["ApplicationDeveloper"].id())
                 return True
 
-        bonsai.bim.helper.import_attributes(
-            "IfcApplication", props.application_attributes, application.get_info(), callback
-        )
+        bonsai.bim.helper.import_attributes(application, props.application_attributes, callback)
 
     @classmethod
     def export_application_attributes(cls) -> dict[str, Any]:
         props = cls.get_owner_props()
         attributes = bonsai.bim.helper.export_attributes(props.application_attributes)
-        bonsai.bim.helper.process_exported_entity_attribute(attributes, "ApplicationDeveloper")
+        bonsai.bim.helper.process_exported_entity_attribute(attributes, ["ApplicationDeveloper"])
         return attributes

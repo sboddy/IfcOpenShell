@@ -62,7 +62,7 @@ def draw_single_property(prop: IfcProperty, layout: bpy.types.UILayout, copy_ope
     )
     if prop.metadata.special_type == "URI":
         op = layout.operator("bim.select_uri_attribute", text="", icon="FILE_FOLDER")
-        op.data_path = prop.metadata.path_from_id("string_value")
+        op.attribute_data_path = tool.Blender.get_full_data_path(prop.metadata)
     if prop.metadata.is_optional:
         layout.prop(prop.metadata, "is_null", icon="RADIOBUT_OFF" if prop.metadata.is_null else "RADIOBUT_ON", text="")
     if copy_operator:
@@ -474,16 +474,17 @@ class BIM_PT_material_psets(Panel):
         return False
 
     def draw(self, context):
+        assert self.layout
         props = tool.Material.get_material_props()
-        if props.materials and props.active_material_index < len(props.materials):
-            ifc_definition_id = props.materials[props.active_material_index].ifc_definition_id
+        if material := props.active_material:
+            ifc_definition_id = material.ifc_definition_id
 
         if not MaterialPsetsData.is_loaded:
             MaterialPsetsData.load()
         elif ifc_definition_id != MaterialPsetsData.data["ifc_definition_id"]:
             MaterialPsetsData.load()
 
-        props = context.scene.MaterialPsetProperties
+        props = tool.Pset.get_pset_props("", "Material")
         row = self.layout.row(align=True)
         prop_with_search(row, props, "pset_name", text="")
         op = row.operator("bim.add_pset", icon="ADD", text="")
@@ -523,6 +524,7 @@ class BIM_PT_material_set_item_psets(Panel):
         if not MaterialSetItemPsetsData.is_loaded:
             MaterialSetItemPsetsData.load()
 
+        assert self.layout
         obj = context.active_object
         assert obj
         omprops = tool.Material.get_object_material_props(obj)
@@ -530,7 +532,7 @@ class BIM_PT_material_set_item_psets(Panel):
             self.layout.label(text="No Material Set Item Edited.")
             return
 
-        props = obj.MaterialSetItemPsetProperties
+        props = tool.Pset.get_pset_props(obj.name, "MaterialSetItem")
         row = self.layout.row(align=True)
         prop_with_search(row, props, "pset_name", text="")
         op = row.operator("bim.add_pset", icon="ADD", text="")
@@ -569,7 +571,8 @@ class BIM_PT_task_qtos(Panel):
         if not TaskQtosData.is_loaded:
             TaskQtosData.load()
 
-        props = context.scene.TaskPsetProperties
+        assert self.layout
+        props = tool.Pset.get_pset_props("", "Task")
         row = self.layout.row(align=True)
         row.prop(props, "qto_name", text="")
         op = row.operator("bim.add_qto", icon="ADD", text="")
@@ -603,7 +606,8 @@ class BIM_PT_resource_qtos(Panel):
         if not ResourceQtosData.is_loaded:
             ResourceQtosData.load()
 
-        props = context.scene.ResourcePsetProperties
+        assert self.layout
+        props = tool.Pset.get_pset_props("", "Resource")
         row = self.layout.row(align=True)
         row.prop(props, "qto_name", text="")
         op = row.operator("bim.add_qto", icon="ADD", text="")
@@ -637,7 +641,8 @@ class BIM_PT_resource_psets(Panel):
         if not ResourcePsetsData.is_loaded:
             ResourcePsetsData.load()
 
-        props = context.scene.ResourcePsetProperties
+        assert self.layout
+        props = tool.Pset.get_pset_props("", "Resource")
         row = self.layout.row(align=True)
         prop_with_search(row, props, "pset_name", text="")
         op = row.operator("bim.add_pset", icon="ADD", text="")
@@ -671,7 +676,8 @@ class BIM_PT_group_qtos(Panel):
         if not GroupQtosData.is_loaded:
             GroupQtosData.load()
 
-        props = context.scene.GroupPsetProperties
+        assert self.layout
+        props = tool.Pset.get_pset_props("", "Group")
         row = self.layout.row(align=True)
         row.prop(props, "qto_name", text="")
         op = row.operator("bim.add_qto", icon="ADD", text="")
@@ -705,7 +711,8 @@ class BIM_PT_group_psets(Panel):
         if not GroupPsetData.is_loaded:
             GroupPsetData.load()
 
-        props = context.scene.GroupPsetProperties
+        assert self.layout
+        props = tool.Pset.get_pset_props("", "Group")
         row = self.layout.row(align=True)
         prop_with_search(row, props, "pset_name", text="")
         op = row.operator("bim.add_pset", icon="ADD", text="")
@@ -749,7 +756,8 @@ class BIM_PT_profile_psets(Panel):
         ):
             ProfilePsetsData.load()
 
-        props = context.scene.ProfilePsetProperties
+        assert self.layout
+        props = tool.Pset.get_pset_props("", "Profile")
         row = self.layout.row(align=True)
         prop_with_search(row, props, "pset_name", text="")
         op = row.operator("bim.add_pset", icon="ADD", text="")
@@ -781,7 +789,8 @@ class BIM_PT_work_schedule_psets(Panel):
         if not WorkSchedulePsetsData.is_loaded:
             WorkSchedulePsetsData.load()
 
-        props = context.scene.WorkSchedulePsetProperties
+        assert self.layout
+        props = tool.Pset.get_pset_props("", "WorkSchedule")
         row = self.layout.row(align=True)
         prop_with_search(row, props, "pset_name", text="")
         op = row.operator("bim.add_pset", icon="ADD", text="")

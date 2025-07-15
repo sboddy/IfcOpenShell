@@ -17,35 +17,32 @@
 # along with IfcOpenShell.  If not, see <http://www.gnu.org/licenses/>.
 
 import ifcopenshell
+import ifcopenshell.api.aggregate
 import ifcopenshell.api.alignment
+import ifcopenshell.api.nest
+import ifcopenshell.util.stationing
+
 from ifcopenshell import entity_instance
 
-from ifcopenshell.api.alignment._create_geometric_representation import _create_geometric_representation
+from ifcopenshell.api.alignment._create_polyline_representation import _create_polyline_representation
 from ifcopenshell.api.alignment._add_zero_length_segment import _add_zero_length_segment
+from collections.abc import Sequence
 
 
-def create(
+def create_as_polyline(
     file: ifcopenshell.file,
     name: str,
-    include_vertical: bool = False,
-    include_cant: bool = False,
+    points: Sequence[entity_instance],
     start_station: float = 0.0,
 ) -> entity_instance:
     """
-    Creates a new IfcAlignment with an IfcRelNests nesting an IfcReferent (for stationing) and IfcAlignmentHorizontal. The nest relationship can optionally
-    include IfcAlignmentVertical and IfcAlignmentCant. Geometric representations for the alignment layouts (IfcCompositeCurve,
-    IfcGradientCurve, IfcSegmentedReferenceCurve) are created as well.
-
-    Zero length segments are added at the end.
+    Creates a new IfcAlignment with an IfcPolyline representation.
 
     The IfcAlignment is aggreated to IfcProject
 
-    Use get_horizontal_layout(alignment) to get the IfcAlignmentHorizontal layout.
-
     :param file:
     :param name: name assigned to IfcAlignment.Name
-    :param include_vertical: If True, IfcAlignmentVertical and IfcGradientCurve are created
-    :param include_cant: If True, IfcAlignmentCant and IfcSegmentedReferenceCurve are created
+    :param points: sequence of points defining the polyline
     :param start_station: station value at the start of the alignment
     :return: Returns an IfcAlignment
     """
@@ -54,29 +51,11 @@ def create(
         Name=name,
     )
 
-    alignment_layouts = []
-
-    alignment_layouts.append(file.createIfcAlignmentHorizontal(GlobalId=ifcopenshell.guid.new()))
-
-    if include_vertical:
-        alignment_layouts.append(file.createIfcAlignmentVertical(GlobalId=ifcopenshell.guid.new()))
-
-    if include_cant:
-        alignment_layouts.append(file.createIfcAlignmentCant(GlobalId=ifcopenshell.guid.new(), RailHeadDistance=1.0))
-
-    ifcopenshell.api.nest.assign_object(file, related_objects=alignment_layouts, relating_object=alignment)
-
-    _create_geometric_representation(file, alignment)
-
-    for layout in alignment_layouts:
-        _add_zero_length_segment(file, layout)
+    _create_polyline_representation(file, alignment, points)
 
     # define stationing
-    basis_curve = ifcopenshell.api.alignment.get_basis_curve(alignment)
     name = ifcopenshell.util.stationing.station_as_string(file, start_station)
-    referent = ifcopenshell.api.alignment.add_stationing_referent(
-        file, alignment, basis_curve, 0.0, start_station, name
-    )
+    referent = ifcopenshell.api.alignment.add_stationing_referent(file, alignment, 0.0, start_station, name)
     ifcopenshell.api.nest.reorder_nesting(file, referent, -1, 0)
 
     # IFC 4.1.4.1.1 Alignment Aggregation To Project

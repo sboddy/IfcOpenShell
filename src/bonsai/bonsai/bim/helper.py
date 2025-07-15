@@ -27,6 +27,7 @@ import ifcopenshell.util.element
 import ifcopenshell.util.unit
 from ifcopenshell.util.doc import get_attribute_doc, get_predefined_type_doc, get_property_doc
 import bonsai.tool as tool
+from types import EllipsisType
 from typing import Optional, Any, Union, TYPE_CHECKING
 from collections.abc import Callable, Iterable
 
@@ -39,6 +40,9 @@ if TYPE_CHECKING:
     # - None  - property should be imported by default workflow
     # - True  - setting value for imported attribute should be skipped
     # - False - property should be skipped entirely from import
+    # Second argument is optional,
+    # because ImportCallback might be called for attributes that are not created by default
+    # (e.g. IFC entity attributes).
     ImportCallback = Callable[[str, Optional[bonsai.bim.prop.Attribute], dict[str, Any]], Union[bool, None]]
     # ExportCallback return values:
     # - True  - property should be skipped entirely from export
@@ -52,7 +56,8 @@ def draw_attributes(
     copy_operator: Optional[str] = None,
     popup_active_attribute: Optional[bonsai.bim.prop.Attribute] = None,
     callback: Optional[Callable[[bonsai.bim.prop.Attribute, bpy.types.UILayout], None]] = None,
-    enable_search: bool = False,
+    *,
+    enable_search: Union[bool, EllipsisType] = ...,
 ) -> None:
     """Draw editable UI for prop.Attributes.
 
@@ -61,6 +66,13 @@ def draw_attributes(
     on it first
 
     :param enable_search: Add search button to string, integer, and float attributes
+        Possible values:
+
+        - ``...`` (default value) -
+            add search if possible. If it's not possible, there will be no warnings or errors.
+        - ``True`` - always add search, if it's not possible it will result in errors.
+        - ``False`` - never add search.
+
     """
     for attribute in props:
         row = layout.row(align=True)
@@ -75,7 +87,7 @@ def draw_attribute(
     attribute: bonsai.bim.prop.Attribute,
     layout: bpy.types.UILayout,
     copy_operator: Optional[str] = None,
-    enable_search: bool = False,
+    enable_search: Union[bool, EllipsisType] = ...,
 ) -> None:
     value_name = attribute.get_value_name(display_only=True)
 
@@ -121,17 +133,19 @@ def draw_attribute(
 
     if attribute.special_type == "URI":
         op = layout.operator("bim.select_uri_attribute", text="", icon="FILE_FOLDER")
-        op.data_path = attribute.path_from_id("string_value")
+        op.attribute_data_path = tool.Blender.get_full_data_path(attribute)
     elif attribute.special_type in ("DATE", "DATETIME"):
         op = layout.operator("bim.datepicker", text="", icon="TIME")
         op.target_prop = attribute.path_from_id("string_value")
         op.include_time = attribute.special_type == "DATETIME"
 
-    if enable_search and attribute.data_type in ("string", "integer", "float"):
+    if attribute.data_type in ("string", "integer", "float") and (
+        enable_search is True or (enable_search is ... and attribute.ifc_class)
+    ):
         op = layout.operator("bim.attribute_search_values", text="", icon="VIEWZOOM")
         op.attribute_name = attribute.name
         op.attribute_ifc_class = attribute.ifc_class
-        op.data_path = attribute.path_from_id(value_name)
+        op.data_path = tool.Blender.get_full_data_path(attribute, value_name)
         op.data_type = attribute.data_type
 
     if attribute.is_optional:
@@ -153,23 +167,14 @@ def draw_attribute(
 
 
 def import_attributes(
-    ifc_class: str,
-    props: bpy.types.bpy_prop_collection_idprop[Attribute],
-    data: dict[str, Any],
-    callback: Optional[ImportCallback] = None,
-) -> None:
-    schema = tool.Ifc.schema()
-    assert (entity := schema.declaration_by_name(ifc_class).as_entity())
-    for attribute in entity.all_attributes():
-        import_attribute(attribute, props, data, callback=callback)
-
-
-# A more elegant attribute importer signature, intended to supersede import_attributes
-def import_attributes2(
     element: Union[str, ifcopenshell.entity_instance],
     props: bpy.types.bpy_prop_collection_idprop[Attribute],
     callback: Optional[ImportCallback] = None,
 ) -> None:
+    """
+    :param element: Entity or IFC class string.
+    """
+    info: dict[str, Any]
     if isinstance(element, str):
         assert (entity := tool.Ifc.schema().declaration_by_name(element).as_entity())
         attributes = entity.all_attributes()

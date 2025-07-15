@@ -22,6 +22,7 @@ import bonsai.core.tool
 import bonsai.tool as tool
 import ifcopenshell.api
 import ifcopenshell.api.cost
+import ifcopenshell.api.document
 import ifcopenshell.api.nest
 import ifcopenshell.util.element
 import ifcopenshell.util.date
@@ -34,6 +35,7 @@ from typing import Optional, Any, Union, Literal, TYPE_CHECKING, assert_never
 from collections.abc import Generator
 
 if TYPE_CHECKING:
+    from bonsai.bim.prop import Attribute
     from bonsai.bim.module.cost.prop import BIMCostProperties, CostItemQuantity
 
 
@@ -128,7 +130,7 @@ class Cost(bonsai.core.tool.Cost):
 
         props = cls.get_cost_props()
         props.cost_schedule_attributes.clear()
-        bonsai.bim.helper.import_attributes2(cost_schedule, props.cost_schedule_attributes, callback=special_import)
+        bonsai.bim.helper.import_attributes(cost_schedule, props.cost_schedule_attributes, callback=special_import)
 
     @classmethod
     def enable_editing_cost_items(cls, cost_schedule: ifcopenshell.entity_instance) -> None:
@@ -234,7 +236,7 @@ class Cost(bonsai.core.tool.Cost):
     def load_cost_item_attributes(cls, cost_item: ifcopenshell.entity_instance) -> None:
         props = cls.get_cost_props()
         props.cost_item_attributes.clear()
-        bonsai.bim.helper.import_attributes2(cost_item, props.cost_item_attributes)
+        bonsai.bim.helper.import_attributes(cost_item, props.cost_item_attributes)
 
     @classmethod
     def disable_editing_cost_item(cls) -> None:
@@ -379,7 +381,7 @@ class Cost(bonsai.core.tool.Cost):
     def load_cost_item_quantity_attributes(cls, physical_quantity: ifcopenshell.entity_instance) -> None:
         props = cls.get_cost_props()
         props.quantity_attributes.clear()
-        bonsai.bim.helper.import_attributes2(physical_quantity, props.quantity_attributes)
+        bonsai.bim.helper.import_attributes(physical_quantity, props.quantity_attributes)
 
     @classmethod
     def enable_editing_cost_item_values(cls, cost_item: ifcopenshell.entity_instance) -> None:
@@ -415,7 +417,13 @@ class Cost(bonsai.core.tool.Cost):
 
     @classmethod
     def load_cost_item_value_attributes(cls, cost_value: ifcopenshell.entity_instance) -> None:
-        def import_attributes(name, prop, data, cost_value, is_rates, props_collection):
+        props = cls.get_cost_props()
+        props.cost_value_attributes.clear()
+        props_collection = props.cost_value_attributes
+        # is_rates = cls.is_active_schedule_of_rates()
+        is_rates = True  # so it is possible to assign a cost item rate that it not only from a  Schedule of Rate
+
+        def import_attributes_callback(name: str, prop: Union[Attribute, None], data) -> None | Literal[True]:
             if name == "AppliedValue":
                 # TODO: for now, only support simple IfcValues (which are effectively IfcMonetaryMeasure)
                 prop = props_collection.add()
@@ -452,14 +460,9 @@ class Cost(bonsai.core.tool.Cost):
                             break
                 return True
 
-        props = cls.get_cost_props()
-        props.cost_value_attributes.clear()
-        # is_rates = cls.is_active_schedule_of_rates()
-        is_rates = True  # so it is possible to assign a cost item rate that it not only from a  Schedule of Rate
-        callback = lambda name, prop, data: import_attributes(
-            name, prop, data, cost_value, is_rates, props.cost_value_attributes
+        bonsai.bim.helper.import_attributes(
+            cost_value, props.cost_value_attributes, callback=import_attributes_callback
         )
-        bonsai.bim.helper.import_attributes2(cost_value, props.cost_value_attributes, callback=callback)
 
     @classmethod
     def calculate_applied_value(

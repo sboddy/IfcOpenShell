@@ -33,9 +33,10 @@ import ifcopenshell.util.date as ifcdateutils
 import ifcopenshell.util.cost
 import ifcopenshell.util.resource
 import ifcopenshell.util.constraint
-from typing import Any, Union, TYPE_CHECKING
+from typing import Any, Union, TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
+    from bonsai.bim.prop import Attribute
     from bonsai.bim.module.resource.prop import BIMResourceProperties
 
 
@@ -98,7 +99,7 @@ class Resource(bonsai.core.tool.Resource):
 
     @classmethod
     def load_resource_attributes(cls, resource: ifcopenshell.entity_instance) -> None:
-        bonsai.bim.helper.import_attributes2(resource, bpy.context.scene.BIMResourceProperties.resource_attributes)
+        bonsai.bim.helper.import_attributes(resource, bpy.context.scene.BIMResourceProperties.resource_attributes)
 
     @classmethod
     def enable_editing_resource(cls, resource: ifcopenshell.entity_instance) -> None:
@@ -136,13 +137,15 @@ class Resource(bonsai.core.tool.Resource):
                     prop.string_value = "" if prop.is_null else ifcdateutils.datetime2ifc(data[name], "IfcDuration")
                     return True
 
-        bonsai.bim.helper.import_attributes2(
+        bonsai.bim.helper.import_attributes(
             resource_time, bpy.context.scene.BIMResourceProperties.resource_time_attributes, callback
         )
 
     @classmethod
     def get_resource_time_attributes(cls) -> dict[str, Any]:
-        def callback(attributes, prop):
+        import bonsai.bim.module.sequence.helper as helper
+
+        def callback(attributes: dict[str, Any], prop: Attribute) -> bool:
             if "Start" in prop.name or "Finish" in prop.name or prop.name == "StatusTime":
                 if prop.is_null:
                     attributes[prop.name] = None
@@ -155,6 +158,7 @@ class Resource(bonsai.core.tool.Resource):
                     return True
                 attributes[prop.name] = helper.parse_duration(prop.string_value)
                 return True
+            return False
 
         props = bpy.context.scene.BIMResourceProperties
         return bonsai.bim.helper.export_attributes(props.resource_time_attributes, callback)
@@ -231,7 +235,7 @@ class Resource(bonsai.core.tool.Resource):
                 return True
 
         props = bpy.context.scene.BIMResourceProperties
-        bonsai.bim.helper.import_attributes2(cost_value, props.cost_value_attributes, callback)
+        bonsai.bim.helper.import_attributes(cost_value, props.cost_value_attributes, callback)
 
     @classmethod
     def enable_editing_cost_value_attributes(cls, cost_value: ifcopenshell.entity_instance) -> None:
@@ -282,7 +286,7 @@ class Resource(bonsai.core.tool.Resource):
         props = bpy.context.scene.BIMResourceProperties
         props.quantity_attributes.clear()
         props.is_editing_quantity = True
-        bonsai.bim.helper.import_attributes2(resource_quantity, props.quantity_attributes)
+        bonsai.bim.helper.import_attributes(resource_quantity, props.quantity_attributes)
 
     @classmethod
     def disable_editing_resource_quantity(cls) -> None:

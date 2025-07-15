@@ -156,27 +156,20 @@ class SelectURIAttribute(bpy.types.Operator, ImportHelper):
     bl_label = "Select URI Attribute"
     bl_options = {"REGISTER", "UNDO"}
     bl_description = "Select a local file"
-    data_path: bpy.props.StringProperty(name="Data Path")
-    use_relative_path: bpy.props.BoolProperty(name="Use Relative Path", default=False)
+    attribute_data_path: bpy.props.StringProperty(name="Data Path")  # pyright: ignore[reportRedeclaration]
+    """Full data path to Attribute."""
+    use_relative_path: bpy.props.BoolProperty(  # pyright: ignore[reportRedeclaration]
+        name="Use Relative Path",
+        default=False,
+    )
+
+    if TYPE_CHECKING:
+        attribute_data_path: str
+        use_relative_path: bool
 
     def execute(self, context):
-        # data_path contains the latter half of the path to the string_value property
-        # I have no idea how to find out the former half, so let's just use brute force.
-        data_path = self.data_path.replace(".string_value", "")
-        attribute = None
-        try:
-            attribute = eval(f"bpy.context.scene.{data_path}")
-        except:
-            try:
-                attribute = eval(f"bpy.context.active_object.{data_path}")
-            except:
-                try:
-                    attribute = eval(f"bpy.context.active_object.active_material.{data_path}")
-                except:
-                    # Do you know a better way?
-                    pass
-        if attribute:
-            attribute.string_value = tool.Ifc.get_uri(self.filepath, use_relative_path=self.use_relative_path)
+        attribute: Attribute = eval(self.attribute_data_path)
+        attribute.string_value = tool.Ifc.get_uri(self.filepath, use_relative_path=self.use_relative_path)
         return {"FINISHED"}
 
 
@@ -242,19 +235,12 @@ class SelectDir(bpy.types.Operator, ImportHelper):
     bl_description = "Open a file browser to choose the directory"
     data_path: bpy.props.StringProperty(name="Data Path")
 
+    if TYPE_CHECKING:
+        data_path: str
+
     def execute(self, context):
-        crumbs = self.data_path.split(".")
-        if crumbs[0] == "preferences":
-            crumbs.pop(0)
-            data = tool.Blender.get_addon_preferences()
-        else:
-            data = context
-        while crumbs:
-            crumb = crumbs.pop(0)
-            if crumbs:
-                data = getattr(data, crumb)
-            else:
-                setattr(data, crumb, os.path.dirname(self.filepath))
+        data, attr = tool.Blender.resolve_data_path_to_data_attr(self.data_path)
+        setattr(data, attr, os.path.dirname(self.filepath))
         return {"FINISHED"}
 
     def invoke(self, context, event):
@@ -909,7 +895,7 @@ class FetchObjectPassport(bpy.types.Operator):
         context.active_object.data = bpy.data.meshes[reference.name]
 
 
-def update_enum_property_search_prop(self, context):
+def update_enum_property_search_prop(self: "BIM_OT_enum_property_search", context: bpy.types.Context) -> None:
     for i, prop in enumerate(self.collection_names):
         if prop.name == self.dummy_name:
             setattr(context.data, self.prop_name, self.collection_identifiers[i].name)
@@ -933,6 +919,7 @@ class BIM_OT_enum_property_search(bpy.types.Operator):
     bl_label = "Search"
     bl_description = "Search For Property"
     bl_options = {"REGISTER", "UNDO"}
+
     first_launch: bpy.props.BoolProperty(default=True, options={"SKIP_SAVE"})
     dummy_name: bpy.props.StringProperty(name="Property", update=update_enum_property_search_prop)
     collection_names: bpy.props.CollectionProperty(type=StrProperty)
@@ -1332,9 +1319,10 @@ class BIM_OT_attribute_search_values(bpy.types.Operator):
 
     bl_idname = "bim.attribute_search_values"
     bl_label = "Search Attribute Values"
-    bl_description = "Search for attribute values within a collection"
+    bl_description = "Search for attribute values used in the elements of the same IFC class."
     bl_options = {"REGISTER", "UNDO"}
-    first_launch: bpy.props.BoolProperty(default=True, options={"SKIP_SAVE"})
+
+    # Required properties.
     attribute_name: bpy.props.StringProperty(name="Attribute Name")
     attribute_ifc_class: bpy.props.StringProperty(name="Attribute IFC Class")
     data_path: bpy.props.StringProperty(name="Data Path")
@@ -1342,6 +1330,9 @@ class BIM_OT_attribute_search_values(bpy.types.Operator):
         name="Data Type",
         items=[(i, i, "") for i in get_args(AttributeSearchDataType)],
     )
+
+    # Internal properties.
+    first_launch: bpy.props.BoolProperty(default=True, options={"SKIP_SAVE"})
     search_value: bpy.props.StringProperty(
         name="Search",
         description="Search for attribute values",
@@ -1352,18 +1343,25 @@ class BIM_OT_attribute_search_values(bpy.types.Operator):
     collection_values: bpy.props.CollectionProperty(type=StrProperty, options={"SKIP_SAVE"})
 
     if TYPE_CHECKING:
+        first_launch: bool
+        attribute_name: str
+        attribute_ifc_class: str
+        data_path: str
         data_type: AttributeSearchDataType
+        search_value: str
+        collection_values: bpy.types.bpy_prop_collection_idprop[StrProperty]
 
     @staticmethod
     def resolve_data_path(data_path: str) -> tuple[str, "Attribute"]:
         """Resolve the data path of an object's attribute to get the attribute name and the object."""
-        path_parts = data_path.split(".")
-        obj_path = ".".join(path_parts[:-1])
-        attr_name = path_parts[-1]
-        attribute_obj = eval(f"bpy.context.scene.{obj_path}")
+        attribute_obj, _, attr_name = data_path.rpartition(".")
+        attribute_obj = eval(attribute_obj)
         return attr_name, attribute_obj
 
     def invoke(self, context, event):
+        required_props = (self.attribute_name, self.attribute_ifc_class, self.data_path)
+        assert all(required_props), required_props
+
         attr_name, attribute_obj = self.resolve_data_path(self.data_path)
         self.search_value = str(getattr(attribute_obj, attr_name, ""))
 
@@ -1406,7 +1404,7 @@ class BIM_OT_attribute_search_values(bpy.types.Operator):
             results_are_suggestions=True,
         )
 
-    def execute(self, context):
+    def execute(self, context) -> "set[rna_enums.OperatorReturnItems]":
         return {"FINISHED"}
 
 
@@ -1416,15 +1414,20 @@ class BIM_OT_attribute_add_subitem(bpy.types.Operator):
     bl_description = "Add subitem to the current attribute"
     bl_options = {"REGISTER", "UNDO"}
 
-    data_path: bpy.props.StringProperty()
+    data_path: bpy.props.StringProperty()  # pyright: ignore[reportRedeclaration]
     """Full data path."""
 
     if TYPE_CHECKING:
         data_path: str
 
     def execute(self, context) -> set["rna_enums.OperatorReturnItems"]:
-        col: "bpy.types.bpy_prop_collection_idprop[StrProperty]"
+        col: bpy.types.bpy_prop_collection_idprop[StrProperty]
         col = eval(self.data_path)
+
+        attr: Attribute = col.data
+        if attr.is_optional and not col:
+            attr.is_null = False
+
         col.add()
         return {"FINISHED"}
 
@@ -1435,16 +1438,21 @@ class BIM_OT_attribute_remove_subitem(bpy.types.Operator):
     bl_description = "Add subitem to the current attribute"
     bl_options = {"REGISTER", "UNDO"}
 
-    data_path: bpy.props.StringProperty()
+    data_path: bpy.props.StringProperty()  # pyright: ignore[reportRedeclaration]
     """Full data path."""
-    index: bpy.props.IntProperty()
+    index: bpy.props.IntProperty()  # pyright: ignore[reportRedeclaration]
 
     if TYPE_CHECKING:
         data_path: str
         index: int
 
     def execute(self, context) -> set["rna_enums.OperatorReturnItems"]:
-        col: "bpy.types.bpy_prop_collection_idprop[StrProperty]"
+        col: bpy.types.bpy_prop_collection_idprop[StrProperty]
         col = eval(self.data_path)
         col.remove(self.index)
+
+        attr: Attribute = col.data
+        if attr.is_optional and not col:
+            attr.is_null = True
+
         return {"FINISHED"}
