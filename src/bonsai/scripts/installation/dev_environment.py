@@ -2,7 +2,7 @@
 
 Script links existing Bonsai installation to the provided IfcOpenShell repository.
 
-If you're on Windows, using Blender 4.4, Bonsai is installed from unstable repo (raw_githubusercontent_com)
+If you're on Windows/Mac, using Blender 4.5, Bonsai is installed from unstable repo (raw_githubusercontent_com)
 and this script is already part of IfcOpenShell repo you want to link, then you can just run it and it will just work.
 
 Otherwise, see the SETTINGS section below to validate script settings to ensure it fits your evnironment.
@@ -14,14 +14,16 @@ Example usage:
 
 """
 
-import sys
-import subprocess
 import shutil
+import subprocess
+import sys
 import urllib.request
 from pathlib import Path
+from typing import Union
 
-if sys.platform != "win32":
-    print("Currently only available on Windows.")
+available_platforms = ("win32", "darwin")
+if sys.platform not in available_platforms:
+    print(f"Currently only available on {','.join(available_platforms)}. Not available on {sys.platform}.")
     exit(1)
 
 # ---------------------------
@@ -36,23 +38,29 @@ REPO_PATH = r""
 
 # BLENDER_PATH: Path to Blender's configuration folder.
 # Usually don't need to change, just ensure Blender version matches.
-BLENDER_PATH = Path.home() / r"AppData/Roaming/Blender Foundation/Blender/4.4"
+if sys.platform == "win32":
+    BLENDER_PATH = Path.home() / r"AppData/Roaming/Blender Foundation/Blender/4.5"
+elif sys.platform == "darwin":
+    BLENDER_PATH = Path.home() / r"Library/Application Support/Blender/4.5"
+else:
+    assert False
 
 
-# Determine BONSAI_PATH from existing options
-def find_bonsai_path() -> Path:
-    candidates = [
-        # Installed from Bonsai Unstalble Repo.
-        BLENDER_PATH / r"extensions/raw_githubusercontent_com/bonsai",
-        # Installed via offline installation.
-        BLENDER_PATH / r"extensions/user_default/bonsai",
-        # Installed from Blender's official extensions platform.
-        BLENDER_PATH / r"extensions/blender_org/bonsai",
-    ]
-    for path in candidates:
+BONSAI_PATH_CANDIDATES = (
+    # Installed from Bonsai Unstalble Repo.
+    BLENDER_PATH / r"extensions/raw_githubusercontent_com/bonsai",
+    # Installed via offline installation.
+    BLENDER_PATH / r"extensions/user_default/bonsai",
+    # Installed from Blender's official extensions platform.
+    BLENDER_PATH / r"extensions/blender_org/bonsai",
+)
+
+
+# Determine BONSAI_PATH from existing options.
+def find_bonsai_path() -> Union[Path, None]:
+    for path in BONSAI_PATH_CANDIDATES:
         if path.exists():
             return path
-    raise FileNotFoundError("Could not find Bonsai path in expected locations.")
 
 
 # BONSAI_PATH: Path to 'bonsai' extension folder inside BLENDER_PATH.
@@ -68,8 +76,11 @@ BONSAI_PATH = find_bonsai_path()
 # Never changed by user.
 PACKAGE_PATH = BLENDER_PATH / r"extensions/.local/lib/python3.11/site-packages"
 
+# Python doesn't allow using escape sequences in f-strings.
+NEW_LINE = chr(10)
 
-def main():
+
+def main() -> None:
     global REPO_PATH
 
     if not REPO_PATH:
@@ -90,18 +101,21 @@ def main():
     assert REPO_PATH.exists(), f"Path '{REPO_PATH=!s}' doesn't exist, ensure variable is set correctly."
     assert BLENDER_PATH.exists(), f"Path '{BLENDER_PATH=!s}' doesn't exist, ensure variable is set correctly."
     assert PACKAGE_PATH.exists(), f"Path '{PACKAGE_PATH=!s}' doesn't exist, ensure variable is set correctly."
-    assert BONSAI_PATH.exists(), f"Path '{BONSAI_PATH=!s}' doesn't exist, ensure variable is set correctly."
+    assert BONSAI_PATH is not None, (
+        "Couldn't find BONSAI_PATH in any of the paths candidates. "
+        f"Example paths: {NEW_LINE.join(str(p) for p in BONSAI_PATH_CANDIDATES)}."
+    )
 
     input("Confirm the settings above and press Enter to continue or Ctrl-C to cancel...")
 
     # Handle symlinks
     # (they could be disabled by default on Windows).
-    subprocess.run("git config --local core.symlinks true", cwd=REPO_PATH)
+    subprocess.check_call(("git", "config", "--local", "core.symlinks", "true"), cwd=REPO_PATH)
     symlinks_glob = "src/bonsai/bonsai/bim/data/templates/projects/*.ifc"
     # Delete and checkout is the only way to ensure files are added as symlinks.
     for path in REPO_PATH.glob(symlinks_glob):
         path.unlink()
-    subprocess.run((f"git checkout -- {symlinks_glob}"), cwd=REPO_PATH)
+    subprocess.check_call(("git", "checkout", "--", symlinks_glob), cwd=REPO_PATH)
 
     print("Copying compiled dependencies to the repo...")
     dest = REPO_PATH / "src" / "ifcopenshell-python" / "ifcopenshell"
@@ -142,7 +156,8 @@ def main():
                 path.unlink()
             else:
                 shutil.rmtree(path)
-        elif path.is_file():
+        # Check `is_symlink` in case if it's a broken symlink.
+        elif path.is_file() or path.is_symlink():
             path.unlink()
         else:
             pass

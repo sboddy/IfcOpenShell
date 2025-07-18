@@ -2100,3 +2100,6 @@ def test_map_alignment_horizontal_segment():
     _SineCurve_100_0__inf__300_1_Meter(file)
 
     # VIENESSE BEND NOT IMPLEMENTED
+
+
+test_map_alignment_horizontal_segment()

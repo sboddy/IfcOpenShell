@@ -251,6 +251,21 @@ class CreateAllShapes(bpy.types.Operator):
     bl_idname = "bim.create_all_shapes"
     bl_label = "Test All Shapes"
     bl_description = "Look for errors in all the shapes contained in the file"
+    bl_options = {"REGISTER"}
+
+    geometry_library: bpy.props.EnumProperty(  # pyright: ignore[reportRedeclaration]
+        name="Geometry Library",
+        items=[(i, i, "") for i in get_args(ifcopenshell.geom.GEOMETRY_LIBRARY)],
+        default="opencascade",
+    )
+    custom_geometry_library: bpy.props.StringProperty(  # pyright: ignore[reportRedeclaration]
+        name="Custom Geometry Library",
+        description="Provide a custom geometry library name, will override the 'geometry library' property.",
+    )
+
+    if TYPE_CHECKING:
+        geometry_library: ifcopenshell.geom.GEOMETRY_LIBRARY
+        custom_geometry_library: str
 
     @classmethod
     def poll(cls, context):
@@ -258,6 +273,7 @@ class CreateAllShapes(bpy.types.Operator):
 
     def execute(self, context):
         self.file = tool.Ifc.get()
+        geometry_library = self.custom_geometry_library or self.geometry_library
         elements = self.file.by_type("IfcElement") + self.file.by_type("IfcSpace")
 
         total = len(elements)
@@ -276,10 +292,10 @@ class CreateAllShapes(bpy.types.Operator):
             start = time.time()
             shape = None
             try:
-                shape = ifcopenshell.geom.create_shape(settings, element)
+                shape = ifcopenshell.geom.create_shape(settings, element, geometry_library=geometry_library)
             except:
                 try:
-                    shape = ifcopenshell.geom.create_shape(settings_2d, element)
+                    shape = ifcopenshell.geom.create_shape(settings_2d, element, geometry_library=geometry_library)
                 except:
                     failures.append(element)
                     print("***** FAILURE *****")
@@ -302,6 +318,7 @@ class CreateShapeFromStepId(bpy.types.Operator):
     bl_label = "Create Shape From STEP ID"
     bl_description = "Recreate a mesh object from a STEP ID"
     bl_options = {"REGISTER", "UNDO"}
+
     should_include_curves: bpy.props.BoolProperty()
     step_id: bpy.props.IntProperty(default=0)
     geometry_library: bpy.props.EnumProperty(
@@ -313,6 +330,12 @@ class CreateShapeFromStepId(bpy.types.Operator):
         name="Custom Geometry Library",
         description="Provide a custom geometry library name, will override the 'geometry library' property.",
     )
+
+    if TYPE_CHECKING:
+        should_include_curves: bool
+        step_id: int
+        geometry_library: ifcopenshell.geom.GEOMETRY_LIBRARY
+        custom_geometry_library: str
 
     @classmethod
     def poll(cls, context):
@@ -973,7 +996,7 @@ class DebugActiveDrawing(bpy.types.Operator):
 class ToggleDetailedIOSLogs(bpy.types.Operator):
     bl_idname = "bim.toggle_detailed_ios_logs"
     bl_label = "Toggle Detailed IfcOpenShell Logs"
-    bl_options = {"REGISTER", "UNDO"}
+    bl_options = {"REGISTER"}
     bl_description = (
         "Turn on detailed IfcOpenShell logs in the system console.\n"
         + "Could be useful debugging issues "
@@ -1000,6 +1023,31 @@ class ToggleDetailedIOSLogs(bpy.types.Operator):
         else:
             wrapper.turn_off_detailed_logging()
             self.report({"INFO"}, "Detailed IfcOpenShell logs turned off.")
+        return {"FINISHED"}
+
+
+LogLevelType = Literal["NOTSET", "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+
+
+class ChangeLogLevel(bpy.types.Operator):
+    bl_idname = "bim.change_log_level"
+    bl_label = "Change Log Level "
+    bl_options = {"REGISTER"}
+    bl_description = "Change general log level across all Python code in Blender"
+
+    log_level: bpy.props.EnumProperty(  # pyright: ignore[reportRedeclaration]
+        name="Log Level",
+        items=((i, i, "") for i in get_args(LogLevelType)),
+        default="WARNING",
+    )
+
+    if TYPE_CHECKING:
+        log_level: LogLevelType
+
+    def execute(self, context):
+        root = logging.getLogger()
+        root.setLevel(self.log_level)
+        self.report({"INFO"}, f"Log level changed to {self.log_level}.")
         return {"FINISHED"}
 
 
