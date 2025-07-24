@@ -269,6 +269,7 @@ class EditWorkSchedule(bpy.types.Operator, tool.Ifc.Operator):
 class RemoveWorkSchedule(bpy.types.Operator, tool.Ifc.Operator):
     bl_idname = "bim.remove_work_schedule"
     bl_label = "Remove Work Schedule"
+    back_reference = "Remove provided work schedule."
     bl_options = {"REGISTER", "UNDO"}
     work_schedule: bpy.props.IntProperty()
 
@@ -276,9 +277,24 @@ class RemoveWorkSchedule(bpy.types.Operator, tool.Ifc.Operator):
         core.remove_work_schedule(tool.Ifc, work_schedule=tool.Ifc.get().by_id(self.work_schedule))
 
 
+class CopyWorkSchedule(bpy.types.Operator, tool.Ifc.Operator):
+    bl_idname = "bim.copy_work_schedule"
+    bl_label = "Copy Work Schedule"
+    bl_description = "Create a duplicate of the provided work schedule."
+    bl_options = {"REGISTER", "UNDO"}
+    work_schedule: bpy.props.IntProperty()  # pyright: ignore[reportRedeclaration]
+
+    if TYPE_CHECKING:
+        work_schedule: int
+
+    def _execute(self, context):
+        core.copy_work_schedule(tool.Sequence, work_schedule=tool.Ifc.get().by_id(self.work_schedule))
+
+
 class EnableEditingWorkSchedule(bpy.types.Operator):
     bl_idname = "bim.enable_editing_work_schedule"
     bl_label = "Enable Editing Work Schedule"
+    bl_description = "Enable editing work schedule attributes."
     bl_options = {"REGISTER", "UNDO"}
     work_schedule: bpy.props.IntProperty()
 
@@ -290,6 +306,7 @@ class EnableEditingWorkSchedule(bpy.types.Operator):
 class EnableEditingWorkScheduleTasks(bpy.types.Operator):
     bl_idname = "bim.enable_editing_work_schedule_tasks"
     bl_label = "Enable Editing Work Schedule Tasks"
+    bl_description = "Enable editing work scheduke tasks."
     bl_options = {"REGISTER", "UNDO"}
     work_schedule: bpy.props.IntProperty()
 
@@ -667,9 +684,9 @@ class DisableEditingWorkCalendar(bpy.types.Operator):
         return {"FINISHED"}
 
 
-class ImportCSV(bpy.types.Operator, tool.Ifc.Operator, ImportHelper):
-    bl_idname = "bim.import_csv"
-    bl_label = "Import CSV"
+class ImportWorkScheduleCSV(bpy.types.Operator, tool.Ifc.Operator, ImportHelper):
+    bl_idname = "bim.import_work_schedule_csv"
+    bl_label = "Import Work Schedule CSV"
     bl_description = "Import work schedule from the provided .csv file."
     bl_options = {"REGISTER", "UNDO"}
     filename_ext = ".csv"
@@ -692,7 +709,7 @@ class ImportCSV(bpy.types.Operator, tool.Ifc.Operator, ImportHelper):
         csv2ifc.csv = self.filepath
         csv2ifc.file = self.file
         csv2ifc.execute()
-        self.report({"INFO"}, "Imported in %s seconds" % (time.time() - start))
+        self.report({"INFO"}, "Import finished in {:.2f} seconds".format(time.time() - start))
 
 
 class ImportP6(bpy.types.Operator, tool.Ifc.Operator, ImportHelper):

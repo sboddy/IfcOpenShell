@@ -22,6 +22,7 @@ import re
 import bpy
 import json
 import base64
+import ifcopenshell.api.sequence
 import pystache
 import mathutils
 import webbrowser
@@ -43,7 +44,7 @@ from collections.abc import Iterable
 from mathutils import Color
 
 if TYPE_CHECKING:
-    import bonsai.bim.prop
+    from bonsai.bim.prop import Attribute
     from bonsai.bim.module.sequence.prop import (
         BIMAnimationProperties,
         BIMStatusProperties,
@@ -86,7 +87,7 @@ class Sequence(bonsai.core.tool.Sequence):
     def get_work_plan_attributes(cls) -> dict[str, Any]:
         import bonsai.bim.module.sequence.helper as helper
 
-        def callback(attributes, prop):
+        def callback(attributes: dict[str, Any], prop: Attribute) -> bool:
             if "Date" in prop.name or "Time" in prop.name:
                 if prop.is_null:
                     attributes[prop.name] = None
@@ -99,14 +100,16 @@ class Sequence(bonsai.core.tool.Sequence):
                     return True
                 attributes[prop.name] = helper.parse_duration(prop.string_value)
                 return True
+            return False
 
         props = cls.get_work_plan_props()
         return bonsai.bim.helper.export_attributes(props.work_plan_attributes, callback)
 
     @classmethod
     def load_work_plan_attributes(cls, work_plan: ifcopenshell.entity_instance) -> None:
-        def callback(name, prop, data):
+        def callback(name: str, prop: Union[Attribute, None], data: dict[str, Any]) -> None | Literal[True]:
             if name in ["CreationDate", "StartTime", "FinishTime"]:
+                assert prop
                 prop.string_value = "" if prop.is_null else data[name]
                 return True
 
@@ -137,33 +140,69 @@ class Sequence(bonsai.core.tool.Sequence):
     def get_work_schedule_attributes(cls) -> dict[str, Any]:
         import bonsai.bim.module.sequence.helper as helper
 
-        def callback(attributes, prop):
+        def callback(attributes: dict[str, Any], prop: Attribute) -> bool:
             if "Date" in prop.name or "Time" in prop.name:
                 if prop.is_null:
                     attributes[prop.name] = None
                     return True
                 attributes[prop.name] = helper.parse_datetime(prop.string_value)
                 return True
-            elif prop.name == "Duration" or prop.name == "TotalFloat":
-                if prop.is_null:
-                    attributes[prop.name] = None
-                    return True
-                attributes[prop.name] = helper.parse_duration(prop.string_value)
-                return True
+            elif prop.special_type == "DURATION":
+                return cls.export_duration_prop(prop, attributes)
+            return False
 
         props = cls.get_work_schedule_props()
         return bonsai.bim.helper.export_attributes(props.work_schedule_attributes, callback)
 
     @classmethod
     def load_work_schedule_attributes(cls, work_schedule: ifcopenshell.entity_instance) -> None:
-        def callback(name, prop, data):
+        schema = tool.Ifc.schema()
+        entity = schema.declaration_by_name("IfcWorkSchedule").as_entity()
+        assert entity
+
+        def callback(name: str, prop: Union[Attribute, None], data: dict[str, Any]) -> None | Literal[True]:
             if name in ["CreationDate", "StartTime", "FinishTime"]:
+                assert prop
                 prop.string_value = "" if prop.is_null else data[name]
                 return True
+            else:
+                attr = entity.attribute_by_index(entity.attribute_index(name))
+                if not attr.type_of_attribute()._is("IfcDuration"):
+                    return
+                assert prop
+                cls.add_duration_prop(prop, data[name])
 
         props = cls.get_work_schedule_props()
         props.work_schedule_attributes.clear()
         bonsai.bim.helper.import_attributes(work_schedule, props.work_schedule_attributes, callback)
+
+    @classmethod
+    def add_duration_prop(cls, prop: Attribute, duration_value: Union[str, None]) -> None:
+        import bonsai.bim.module.sequence.helper as helper
+
+        props = cls.get_work_schedule_props()
+        prop.special_type = "DURATION"
+        duration_props = props.durations_attributes.add()
+        duration_props.name = prop.name
+        if duration_value is None:
+            return
+        for key, value in helper.parse_duration_as_blender_props(duration_value).items():
+            setattr(duration_props, key, value)
+
+    @classmethod
+    def export_duration_prop(cls, prop: Attribute, out_attributes: dict[str, Any]) -> Literal[True]:
+        import bonsai.bim.module.sequence.helper as helper
+
+        props = cls.get_work_schedule_props()
+        if prop.is_null:
+            out_attributes[prop.name] = None
+        else:
+            duration_type = out_attributes["DurationType"] if "DurationType" in out_attributes else None
+            time_split_iso_duration = helper.blender_props_to_iso_duration(
+                props.durations_attributes, duration_type, prop.name
+            )
+            out_attributes[prop.name] = time_split_iso_duration
+        return True
 
     @classmethod
     def enable_editing_work_schedule(cls, work_schedule: ifcopenshell.entity_instance) -> None:
@@ -397,28 +436,18 @@ class Sequence(bonsai.core.tool.Sequence):
 
     @classmethod
     def load_task_time_attributes(cls, task_time: ifcopenshell.entity_instance) -> None:
-        import bonsai.bim.module.sequence.helper as helper
-
         props = cls.get_work_schedule_props()
+        schema = tool.Ifc.schema()
+        entity = schema.declaration_by_name("IfcTaskTime").as_entity()
+        assert entity
 
-        def callback(
-            name: str, prop: Union[bonsai.bim.prop.Attribute, None], data: dict[str, Any]
-        ) -> Union[bool, None]:
-            if prop and prop.data_type == "string":
-                # TODO: Check actual attribute type instead of providing attribute names.
-                if name in ("ScheduleDuration", "ActualDuration", "FreeFloat", "TotalFloat"):
-                    duration_props = props.durations_attributes.add()
-                    duration_props.name = name
-                    if prop.is_null:
-                        for key in duration_props.keys():
-                            if key != "name":
-                                setattr(duration_props, key, 0)
-                        return True
-                    if data[name]:
-                        for key, value in helper.parse_duration_as_blender_props(data[name]).items():
-                            duration_props[key] = value
-                        return True
+        def callback(name: str, prop: Union[Attribute, None], data: dict[str, Any]) -> Union[bool, None]:
+            attr = entity.attribute_by_index(entity.attribute_index(name))
+            if attr.type_of_attribute()._is("IfcDuration"):
+                assert prop
+                cls.add_duration_prop(prop, data[name])
             if isinstance(data[name], datetime):
+                assert prop
                 prop.string_value = "" if prop.is_null else data[name].isoformat()
                 return True
 
@@ -446,28 +475,16 @@ class Sequence(bonsai.core.tool.Sequence):
 
         props = cls.get_work_schedule_props()
 
-        def callback(attributes, prop):
+        def callback(attributes: dict[str, Any], prop: Attribute) -> bool:
             if "Start" in prop.name or "Finish" in prop.name or prop.name == "StatusTime":
                 if prop.is_null:
                     attributes[prop.name] = None
                     return True
                 attributes[prop.name] = helper.parse_datetime(prop.string_value)
                 return True
-            elif prop.name in ["ScheduleDuration", "ActualDuration", "FreeFloat", "TotalFloat"]:
-                if prop.is_null:
-                    attributes[prop.name] = None
-                    for value in props.durations_attributes.values():
-                        value = 0
-                    return True
-                else:
-                    duration_type = attributes["DurationType"] if "DurationType" in attributes else None
-                    time_split_iso_duration = helper.blender_props_to_iso_duration(
-                        props.durations_attributes, duration_type, prop.name
-                    )
-                    attributes[prop.name] = time_split_iso_duration
-                    for value in props.durations_attributes.values():
-                        value = 0
-                    return True
+            elif prop.special_type == "DURATION":
+                return cls.export_duration_prop(prop, attributes)
+            return False
 
         return bonsai.bim.helper.export_attributes(props.task_time_attributes, callback)
 
@@ -635,13 +652,14 @@ class Sequence(bonsai.core.tool.Sequence):
     def get_work_time_attributes(cls) -> dict[str, Any]:
         import bonsai.bim.module.sequence.helper as helper
 
-        def callback(attributes, prop):
+        def callback(attributes: dict[str, Any], prop: Attribute) -> bool:
             if "Start" in prop.name or "Finish" in prop.name:
                 if prop.is_null:
                     attributes[prop.name] = None
                     return True
                 attributes[prop.name] = helper.parse_datetime(prop.string_value)
                 return True
+            return False
 
         props = bpy.context.scene.BIMWorkCalendarProperties
         return bonsai.bim.helper.export_attributes(props.work_time_attributes, callback)
@@ -725,7 +743,7 @@ class Sequence(bonsai.core.tool.Sequence):
     def load_lag_time_attributes(cls, lag_time: ifcopenshell.entity_instance) -> None:
         props = cls.get_work_schedule_props()
 
-        def callback(name, prop, data):
+        def callback(name: str, prop: Union[Attribute, None], data: dict[str, Any]) -> None | Literal[True]:
             if name == "LagValue":
                 prop = props.lag_time_attributes.add()
                 prop.name = name
@@ -1829,3 +1847,9 @@ class Sequence(bonsai.core.tool.Sequence):
             if not element or not element.is_a("IfcProduct"):
                 continue
             obj.hide_set(element not in visible_elements)
+
+    @classmethod
+    def copy_work_schedule(cls, work_schedule: ifcopenshell.entity_instance) -> None:
+        ifc_file = tool.Ifc.get()
+        new_schedule = ifcopenshell.api.sequence.copy_work_schedule(ifc_file, work_schedule)
+        new_schedule.Name = (new_schedule.Name or "Unnamed") + " Copy"

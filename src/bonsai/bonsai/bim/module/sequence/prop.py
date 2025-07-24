@@ -28,7 +28,7 @@ from bonsai.bim.module.sequence.data import SequenceData, AnimationColorSchemeDa
 import bonsai.bim.module.resource.data
 import bonsai.bim.module.pset.data
 from mathutils import Color
-from bonsai.bim.prop import StrProperty, Attribute
+from bonsai.bim.prop import Attribute, ISODuration
 from dateutil import parser
 from bpy.types import PropertyGroup
 from bpy.props import (
@@ -41,7 +41,7 @@ from bpy.props import (
     FloatVectorProperty,
     CollectionProperty,
 )
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, get_args
 
 
 def getTaskColumns(self, context):
@@ -406,9 +406,14 @@ class TaskProduct(PropertyGroup):
         ifc_definition_id: int
 
 
+WorkPlanEditingType = Literal["-", "ATTRIBUTES", "SCHEDULES", "WORK_SCHEDULE", "TASKS", "WORKTIMES"]
+
+
 class BIMWorkPlanProperties(PropertyGroup):
     work_plan_attributes: CollectionProperty(name="Work Plan Attributes", type=Attribute)
-    editing_type: StringProperty(name="Editing Type")
+    editing_type: EnumProperty(  # pyright: ignore[reportRedeclaration]
+        items=[(i, i, "") for i in get_args(WorkPlanEditingType)],
+    )
     work_plans: CollectionProperty(name="Work Plans", type=WorkPlan)
     active_work_plan_index: IntProperty(name="Active Work Plan Index")
     active_work_plan_id: IntProperty(name="Active Work Plan Id")
@@ -416,30 +421,11 @@ class BIMWorkPlanProperties(PropertyGroup):
 
     if TYPE_CHECKING:
         work_plan_attributes: bpy.types.bpy_prop_collection_idprop[Attribute]
-        editing_type: str
+        editing_type: WorkPlanEditingType
         work_plans: bpy.types.bpy_prop_collection_idprop[WorkPlan]
         active_work_plan_index: int
         active_work_plan_id: int
         work_schedules: str
-
-
-class ISODuration(PropertyGroup):
-    name: StringProperty(name="Name")
-    years: IntProperty(name="Years", default=0)
-    months: IntProperty(name="Months", default=0)
-    days: IntProperty(name="Days", default=0)
-    hours: IntProperty(name="Hours", default=0)
-    minutes: IntProperty(name="Minutes", default=0)
-    seconds: IntProperty(name="Seconds", default=0)
-
-    if TYPE_CHECKING:
-        name: str
-        years: int
-        months: int
-        days: int
-        hours: int
-        minutes: int
-        seconds: int
 
 
 class IFCStatus(PropertyGroup):

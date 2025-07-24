@@ -21,7 +21,7 @@ import ifcopenshell.util.date
 from math import floor
 from functools import cache
 from typing import Union, Literal, Optional
-from collections.abc import Iterator
+from collections.abc import Generator
 
 
 DURATION_TYPE = Literal["ELAPSEDTIME", "WORKTIME", "NOTDEFINED"]
@@ -289,26 +289,21 @@ def get_parent_task(task: ifcopenshell.entity_instance) -> Union[ifcopenshell.en
         return obj
 
 
-def get_all_nested_tasks(task: ifcopenshell.entity_instance) -> Iterator[ifcopenshell.entity_instance]:
+def get_all_nested_tasks(task: ifcopenshell.entity_instance) -> Generator[ifcopenshell.entity_instance]:
     for nested_task in get_nested_tasks(task):
         yield nested_task
         yield from get_all_nested_tasks(nested_task)
 
 
-def get_work_schedule_tasks(work_schedule: ifcopenshell.entity_instance) -> list[ifcopenshell.entity_instance]:
-    tasks = []
+def get_work_schedule_tasks(work_schedule: ifcopenshell.entity_instance) -> Generator[ifcopenshell.entity_instance]:
+    """Get all work schedule tasks, including the nested ones."""
     for root_task in get_root_tasks(work_schedule):
-        nested_tasks = get_all_nested_tasks(root_task)
-        tasks.extend(nested_tasks)
-    return tasks
+        yield root_task
+        yield from get_all_nested_tasks(root_task)
 
 
 def get_root_tasks(work_schedule: ifcopenshell.entity_instance) -> list[ifcopenshell.entity_instance]:
     return [obj for rel in work_schedule.Controls for obj in rel.RelatedObjects if obj.is_a("IfcTask")]
-
-
-def get_root_tasks_ids(work_schedule: ifcopenshell.entity_instance) -> list[int]:
-    return [obj.id() for rel in work_schedule.Controls for obj in rel.RelatedObjects if obj.is_a("IfcTask")]
 
 
 def guess_date_range(work_schedule: ifcopenshell.entity_instance):

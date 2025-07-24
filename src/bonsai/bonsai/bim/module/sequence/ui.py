@@ -174,6 +174,7 @@ class BIM_PT_work_schedules(Panel):
             else:
                 row.label(text="No Work Schedules found.", icon="TEXT")
             row.operator("bim.add_work_schedule", text="", icon="ADD")
+            row.operator("bim.import_work_schedule_csv", text="", icon="IMPORT")
 
         for work_schedule_id, work_schedule in SequenceData.data["work_schedules"].items():
             self.draw_work_schedule_ui(work_schedule_id, work_schedule)
@@ -190,7 +191,8 @@ class BIM_PT_work_schedules(Panel):
                     icon="LINENUMBERS_ON",
                 )
                 if self.props.editing_type == "WORK_SCHEDULE":
-                    row.operator("bim.edit_work_schedule", text="Apply", icon="CHECKMARK")
+                    row.operator("bim.edit_work_schedule", text="", icon="CHECKMARK")
+                    row.operator("bim.disable_editing_work_schedule", text="", icon="CANCEL")
                 elif self.props.editing_type == "TASKS":
                     grid = self.layout.grid_flow(columns=2, even_columns=True)
                     col = grid.column()
@@ -237,13 +239,15 @@ class BIM_PT_work_schedules(Panel):
                 )
                 col2 = grid.column()
                 row = col2.row(align=True)
-                row.operator("bim.enable_editing_work_schedule_tasks", text="Tasks", icon="ACTION").work_schedule = (
+                row.alignment = "RIGHT"
+                row.operator("bim.enable_editing_work_schedule_tasks", text="", icon="ACTION").work_schedule = (
                     work_schedule_id
                 )
-                row.operator(
-                    "bim.enable_editing_work_schedule", text="Attributes", icon="GREASEPENCIL"
-                ).work_schedule = work_schedule_id
-                row.operator("bim.remove_work_schedule", text="Delete", icon="X").work_schedule = work_schedule_id
+                row.operator("bim.enable_editing_work_schedule", text="", icon="GREASEPENCIL").work_schedule = (
+                    work_schedule_id
+                )
+                row.operator("bim.copy_work_schedule", text="", icon="DUPLICATE").work_schedule = work_schedule_id
+                row.operator("bim.remove_work_schedule", text="", icon="X").work_schedule = work_schedule_id
             if self.props.active_work_schedule_id == work_schedule_id:
                 if self.props.editing_type == "WORK_SCHEDULE":
                     self.draw_editable_work_schedule_ui()
@@ -571,7 +575,12 @@ class BIM_PT_animation_tools(Panel):
         row = self.layout.row(align=True)
         row.alignment = "RIGHT"
         if AnimationColorSchemeData.data["saved_color_schemes"]:
-            row.prop(self.animation_props, "saved_color_schemes", text="Color Scheme", icon="SEQUENCE_COLOR_04")
+            row.prop(
+                self.animation_props,
+                "saved_color_schemes",
+                text="Color Scheme",
+                icon=tool.Blender.SEQUENCE_COLOR_SCHEME_ICON,
+            )
         else:
             row.label(text="No Color Scheme Saved", icon="INFO")
         op = row.operator("bim.visualise_work_schedule_date_range", text="Create Animation", icon="OUTLINER_OB_CAMERA")
@@ -611,7 +620,9 @@ class BIM_PT_animation_Color_Scheme(Panel):
         self.animation_props = tool.Sequence.get_animation_props()
         row = self.layout.row(align=True)
         row.alignment = "RIGHT"
-        row.operator("bim.load_default_animation_color_scheme", text="Load default", icon="SEQUENCE_COLOR_04")
+        row.operator(
+            "bim.load_default_animation_color_scheme", text="Load default", icon=tool.Blender.SEQUENCE_COLOR_SCHEME_ICON
+        )
         if AnimationColorSchemeData.data["saved_color_schemes"]:
             row.operator("bim.load_animation_color_scheme", text="Load Scheme", icon="IMPORT")
         row.operator("bim.save_animation_color_scheme", text="Save Scheme", icon="EXPORT")
