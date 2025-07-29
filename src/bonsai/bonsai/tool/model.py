@@ -65,6 +65,8 @@ if TYPE_CHECKING:
         BIMStairProperties,
         BIMRailingProperties,
         BIMExternalParametricGeometryProperties,
+        BIMPolylineProperties,
+        BIMProductPreviewProperties,
     )
 
 
@@ -100,6 +102,16 @@ class Model(bonsai.core.tool.Model):
     @classmethod
     def get_epg_props(cls, obj: bpy.types.Object) -> BIMExternalParametricGeometryProperties:
         return obj.BIMExternalParametricGeometryProperties
+
+    @classmethod
+    def get_polyline_props(cls) -> BIMPolylineProperties:
+        assert (scene := bpy.context.scene)
+        return scene.BIMPolylineProperties  # pyright: ignore[reportAttributeAccessIssue]
+
+    @classmethod
+    def get_product_preview_props(cls) -> BIMProductPreviewProperties:
+        assert (scene := bpy.context.scene)
+        return scene.BIMProductPreviewProperties  # pyright: ignore[reportAttributeAccessIssue]
 
     @classmethod
     def convert_si_to_unit(cls, value: T) -> T:
