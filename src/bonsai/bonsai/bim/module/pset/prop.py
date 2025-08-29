@@ -24,7 +24,12 @@ import ifcopenshell.util.doc
 import ifcopenshell.util.element
 import bonsai.tool as tool
 from bonsai.bim.prop import Attribute, StrProperty
-from bonsai.bim.module.pset.data import AddEditCustomPropertiesData, ObjectPsetsData, MaterialPsetsData
+from bonsai.bim.module.pset.data import (
+    AddEditCustomPropertiesData,
+    ObjectPsetsData,
+    MaterialPsetsData,
+    PsetsGeneralData,
+)
 from bonsai.bim.module.material.data import ObjectMaterialData
 from bpy.types import PropertyGroup
 from bpy.props import (
@@ -81,23 +86,18 @@ def get_pset_name(self: "PsetProperties", context: bpy.types.Context) -> tool.Bl
         results = get_profile_pset_names(self, context)
     elif prop_type == "WorkSchedulePsetProperties":
         results = get_work_schedule_pset_names(self, context)
+    elif prop_type == "ZonePsetProperties":
+        results = get_zone_pset_names(self, context)
+
+    if not PsetsGeneralData.is_loaded:
+        PsetsGeneralData.load()
 
     items: list[tool.Blender.BLENDER_ENUM_ITEM]
     items = [("BBIM_CUSTOM", "Custom Pset", "Create a property set without using a template.")]
-    bprops = tool.Bsdd.get_bsdd_props()
-    dictionaries = [(d.uri, f"bSDD: {d.name}", "") for d in bprops.dictionaries if d.is_active]
-    if dictionaries:
-        items.extend(
-            [
-                None,
-                (
-                    "BBIM_BSDD",
-                    "All Data Dictionaries",
-                    "Manage properties from all active buildingSMART Data Dictionaries",
-                ),
-            ]
-        )
-        items.extend(dictionaries)
+    bsdd_items = PsetsGeneralData.data["bsdd_enum_items"]
+    if bsdd_items:
+        items.append(None)
+        items.extend(bsdd_items)
     items.append(None)
     items.extend(results)
     return items
@@ -206,6 +206,15 @@ def get_profile_pset_names(self: "PsetProperties", context: object) -> tool.Blen
 def get_work_schedule_pset_names(self: "PsetProperties", context: object) -> tool.Blender.BLENDER_ENUM_ITEMS:
     global psetnames
     ifc_class = "IfcWorkSchedule"
+    if ifc_class not in psetnames:
+        psets = bonsai.bim.schema.ifc.psetqto.get_applicable(ifc_class, pset_only=True, schema=tool.Ifc.get_schema())
+        psetnames[ifc_class] = blender_formatted_enum_from_psets(psets)
+    return psetnames[ifc_class]
+
+
+def get_zone_pset_names(self: "PsetProperties", context: object) -> tool.Blender.BLENDER_ENUM_ITEMS:
+    global psetnames
+    ifc_class = "IfcZone"
     if ifc_class not in psetnames:
         psets = bonsai.bim.schema.ifc.psetqto.get_applicable(ifc_class, pset_only=True, schema=tool.Ifc.get_schema())
         psetnames[ifc_class] = blender_formatted_enum_from_psets(psets)
