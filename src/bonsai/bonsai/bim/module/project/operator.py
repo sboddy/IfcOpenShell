@@ -155,6 +155,7 @@ class CreateProject(bpy.types.Operator):
             tool.Ifc, tool.Georeference, tool.Project, tool.Spatial, schema=props.export_schema, template=template
         )
         tool.Blender.register_toolbar()
+        tool.Loader.set_unit_scale(ifcopenshell.util.unit.calculate_unit_scale(tool.Ifc.get()))
 
     def rollback(self, data):
         IfcStore.file = None
@@ -620,8 +621,11 @@ class AppendLibraryElement(bpy.types.Operator, tool.Ifc.Operator):
                 self.import_type_from_ifc(element_type, context)
         elif element.is_a("IfcMaterial"):
             self.import_material_from_ifc(element, context)
-        elif element.is_a("IfcPresentationStyle"):
+        elif element.is_a("IfcSurfaceStyle"):
             self.import_presentation_style_from_ifc(element, context)
+        else:
+            # E.g. other IfcPresentationStyles.
+            pass
 
         try:
             props = tool.Project.get_project_props()
@@ -846,26 +850,8 @@ class EnableEditingHeader(bpy.types.Operator):
         self.file = tool.Ifc.get()
         props = tool.Project.get_project_props()
         props.is_editing = True
-
-        mvd = "".join(tool.Ifc.get().wrapped_data.header.file_description.description)
-        if "[" in mvd:
-            props.mvd = mvd.split("[")[1][0:-1]
-        else:
-            props.mvd = ""
-
-        author = self.file.wrapped_data.header.file_name.author
-        if author:
-            props.author_name = author[0]
-            if len(author) > 1:
-                props.author_email = author[1]
-
-        organisation = self.file.wrapped_data.header.file_name.organization
-        if organisation:
-            props.organisation_name = organisation[0]
-            if len(organisation) > 1:
-                props.organisation_email = organisation[1]
-
-        props.authorisation = self.file.wrapped_data.header.file_name.authorization or ""
+        header_data = tool.Project.get_header_data()
+        props.load_header_data(header_data)
         return {"FINISHED"}
 
 
@@ -880,6 +866,9 @@ class EditHeader(bpy.types.Operator):
         return tool.Ifc.get()
 
     def execute(self, context):
+        # NOTE: Though header entities are now generic `entity_instance`
+        # we still have a special undo system in place for this operator
+        # since general undo system tracks only elements with ids != 0.
         IfcStore.begin_transaction(self)
         self.transaction_data = {}
         self.transaction_data["old"] = self.record_state()
@@ -887,6 +876,7 @@ class EditHeader(bpy.types.Operator):
         self.transaction_data["new"] = self.record_state()
         IfcStore.add_transaction_operation(self)
         IfcStore.end_transaction(self)
+        bonsai.bim.handler.refresh_ui_data()
         return result
 
     def _execute(self, context):
@@ -894,35 +884,35 @@ class EditHeader(bpy.types.Operator):
         props = tool.Project.get_project_props()
         props.is_editing = True
 
-        self.file.wrapped_data.header.file_description.description = (f"ViewDefinition[{props.mvd}]",)
-        self.file.wrapped_data.header.file_name.author = (props.author_name, props.author_email)
-        self.file.wrapped_data.header.file_name.organization = (props.organisation_name, props.organisation_email)
-        self.file.wrapped_data.header.file_name.authorization = props.authorisation
+        self.file.header.file_description.description = (f"ViewDefinition[{props.mvd}]",)
+        self.file.header.file_name.author = (props.author_name, props.author_email)
+        self.file.header.file_name.organization = (props.organisation_name, props.organisation_email)
+        self.file.header.file_name.authorization = props.authorisation
         bpy.ops.bim.disable_editing_header()
         return {"FINISHED"}
 
     def record_state(self):
         self.file = tool.Ifc.get()
         return {
-            "description": self.file.wrapped_data.header.file_description.description,
-            "author": self.file.wrapped_data.header.file_name.author,
-            "organisation": self.file.wrapped_data.header.file_name.organization,
-            "authorisation": self.file.wrapped_data.header.file_name.authorization,
+            "description": self.file.header.file_description.description,
+            "author": self.file.header.file_name.author,
+            "organisation": self.file.header.file_name.organization,
+            "authorisation": self.file.header.file_name.authorization,
         }
 
     def rollback(self, data):
         file = tool.Ifc.get()
-        file.wrapped_data.header.file_description.description = data["old"]["description"]
-        file.wrapped_data.header.file_name.author = data["old"]["author"]
-        file.wrapped_data.header.file_name.organization = data["old"]["organisation"]
-        file.wrapped_data.header.file_name.authorization = data["old"]["authorisation"]
+        file.header.file_description.description = data["old"]["description"]
+        file.header.file_name.author = data["old"]["author"]
+        file.header.file_name.organization = data["old"]["organisation"]
+        file.header.file_name.authorization = data["old"]["authorisation"]
 
     def commit(self, data):
         file = tool.Ifc.get()
-        file.wrapped_data.header.file_description.description = data["new"]["description"]
-        file.wrapped_data.header.file_name.author = data["new"]["author"]
-        file.wrapped_data.header.file_name.organization = data["new"]["organisation"]
-        file.wrapped_data.header.file_name.authorization = data["new"]["authorisation"]
+        file.header.file_description.description = data["new"]["description"]
+        file.header.file_name.author = data["new"]["author"]
+        file.header.file_name.organization = data["new"]["organisation"]
+        file.header.file_name.authorization = data["new"]["authorisation"]
 
 
 class DisableEditingHeader(bpy.types.Operator):
@@ -2532,6 +2522,7 @@ class FlipClippingPlane(bpy.types.Operator):
         obj = context.active_object
         if obj in tool.Project.get_project_props().clipping_planes_objs:
             obj.rotation_euler[0] += radians(180)
+            obj.rotation_euler[0] %= radians(360)
             context.view_layer.update()
         return {"FINISHED"}
 

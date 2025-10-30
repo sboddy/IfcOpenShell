@@ -19,6 +19,7 @@
 import ifcopenshell
 import ifcopenshell.api.alignment
 import ifcopenshell.api.nest
+import ifcopenshell.api.pset
 import ifcopenshell.geom
 import ifcopenshell.util.alignment
 import ifcopenshell.util.unit
@@ -83,7 +84,7 @@ def _add_segment_to_layout(file: ifcopenshell.file, layout: entity_instance, seg
 
         # get the station of the start of the segment
         alignment = ifcopenshell.api.alignment.get_alignment(layout)
-        start_station = ifcopenshell.api.alignment.get_alignment_station(file, alignment)
+        start_station = ifcopenshell.api.alignment.get_alignment_start_station(file, alignment)
         station = start_station + dist_along
 
         # update the zero length layout segment
@@ -91,43 +92,42 @@ def _add_segment_to_layout(file: ifcopenshell.file, layout: entity_instance, seg
 
         segment_nest = ifcopenshell.api.alignment.get_alignment_segment_nest(layout)
         zero_length_segment = segment_nest.RelatedObjects[-1]
-        # DesignParameters.StartPoint for IfcAlignmentHorizontalSegment is automatically updated when the
-        # geometric representation is updated because the semantic and geometric data use the same IfcPoint.
-        # This is not the case of IfcAlignmentVerticalSegment and IfcAlignmentCantSegment. For these
-        # segment types, the design parameters of the zero length segment must be updated explicitly.
-        if zero_length_segment.DesignParameters.is_a(
-            "IfcAlignmentVerticalSegment"
-        ) or zero_length_segment.DesignParameters.is_a("IfcAlignmentCantSegment"):
-            # get the geometric representation for the new segment
-            mapped_segments = ifcopenshell.api.alignment.get_mapped_segments(segment)
-            mapped_segment = mapped_segments[0] if mapped_segments[1] == None else mapped_segments[1]
+        mapped_segments = ifcopenshell.api.alignment.get_mapped_segments(segment)
+        mapped_segment = mapped_segments[0] if mapped_segments[1] == None else mapped_segments[1]
 
-            # compute the end point matrix
-            settings = ifcopenshell.geom.settings()
-            segment_fn = ifcopenshell_wrapper.map_shape(settings, mapped_segment.wrapped_data)
-            segment_evaluator = ifcopenshell_wrapper.function_item_evaluator(settings, segment_fn)
-            e = segment_evaluator.evaluate(segment_fn.end())
-            end = np.array(e)
+        # compute the end point matrix
+        settings = ifcopenshell.geom.settings()
+        segment_fn = ifcopenshell_wrapper.map_shape(settings, mapped_segment.wrapped_data)
+        segment_evaluator = ifcopenshell_wrapper.function_item_evaluator(settings, segment_fn)
+        e = segment_evaluator.evaluate(segment_fn.end())
+        end = np.array(e)
 
-            # update the zero length segment semantic representation parameters
-            if zero_length_segment.DesignParameters.is_a("IfcAlignmentVerticalSegment"):
-                y = float(end[1, 3]) / unit_scale
-                zero_length_segment.DesignParameters.StartHeight = y
-                dx = float(end[0, 0])
-                dy = float(end[1, 0])
-                zero_length_segment.DesignParameters.StartGradient = dy / dx
-                zero_length_segment.DesignParameters.EndGradient = zero_length_segment.DesignParameters.StartGradient
-            else:
-                z = float(end[2, 3]) / unit_scale
-                dx = float(end[0, 1])
-                dy = float(end[1, 1])
-                dz = float(end[2, 1])
-                ds = math.sqrt(dx * dx + dy * dy)
-                slope = dz / ds
-                railhead = layout.RailHeadDistance
+        # update the zero length segment semantic representation parameters
+        if zero_length_segment.DesignParameters.is_a("IfcAlignmentHorizontalSegment"):
+            x = float(end[0, 3]) / unit_scale
+            y = float(end[1, 3]) / unit_scale
+            dx = float(end[0, 0])
+            dy = float(end[1, 0])
+            zero_length_segment.DesignParameters.StartPoint.Coordinates = (x, y)
+            zero_length_segment.DesignParameters.StartDirection = dy / dx
+        elif zero_length_segment.DesignParameters.is_a("IfcAlignmentVerticalSegment"):
+            y = float(end[1, 3]) / unit_scale
+            zero_length_segment.DesignParameters.StartHeight = y
+            dx = float(end[0, 0])
+            dy = float(end[1, 0])
+            zero_length_segment.DesignParameters.StartGradient = dy / dx
+            zero_length_segment.DesignParameters.EndGradient = zero_length_segment.DesignParameters.StartGradient
+        else:
+            z = float(end[2, 3]) / unit_scale
+            dx = float(end[0, 1])
+            dy = float(end[1, 1])
+            dz = float(end[2, 1])
+            ds = math.sqrt(dx * dx + dy * dy)
+            slope = dz / ds
+            railhead = layout.RailHeadDistance
 
-                zero_length_segment.DesignParameters.StartCantLeft = z + slope * railhead / 2.0
-                zero_length_segment.DesignParameters.StartCantRight = z - slope * railhead / 2.0
+            zero_length_segment.DesignParameters.StartCantLeft = z + slope * railhead / 2.0
+            zero_length_segment.DesignParameters.StartCantRight = z - slope * railhead / 2.0
 
         # updated the referent's name because the referent is now at a new station
         start_dist_along = 0.0
@@ -137,8 +137,7 @@ def _add_segment_to_layout(file: ifcopenshell.file, layout: entity_instance, seg
             start_dist_along = segment.DesignParameters.StartDistAlong + segment.DesignParameters.HorizontalLength
             zero_length_segment.DesignParameters.StartDistAlong = start_dist_along
 
-        referent_nest = ifcopenshell.api.alignment.get_referent_nest(file, layout)
-        end_referent = referent_nest.RelatedObjects[-1]
+        end_referent = zero_length_segment.PositionedRelativeTo[0].RelatingPositioningElement
         end_referent.Name = f"{_get_segment_start_point_label(zero_length_segment,None)} ({ifcopenshell.util.alignment.station_as_string(file,start_station+start_dist_along)})"
 
         # update the referent's geometric representation's location
@@ -166,7 +165,7 @@ def _add_segment_to_layout(file: ifcopenshell.file, layout: entity_instance, seg
         end_referent.ObjectPlacement.CartesianPosition.Axis.DirectionRatios = (ax, ay, az)
         end_referent.ObjectPlacement.CartesianPosition.RefDirection.DirectionRatios = (rx, ry, rz)
 
-        start_station = ifcopenshell.api.alignment.get_alignment_station(file, alignment)
+        start_station = ifcopenshell.api.alignment.get_alignment_start_station(file, alignment)
         end_referent_station = start_station + start_dist_along
         pset_stationing = ifcopenshell.api.pset.add_pset(file, product=end_referent, name="Pset_Stationing")
         ifcopenshell.api.pset.edit_pset(file, pset=pset_stationing, properties={"Station": end_referent_station})
@@ -178,9 +177,8 @@ def _add_segment_to_layout(file: ifcopenshell.file, layout: entity_instance, seg
         prev_segment = segment_nest.RelatedObjects[-3] if 2 < len(segment_nest.RelatedObjects) else None
         name = f"{_get_segment_start_point_label(prev_segment,segment)} ({ifcopenshell.util.alignment.station_as_string(file,station)})"
         referent = ifcopenshell.api.alignment.add_stationing_referent(
-            file, layout, distance_along=dist_along, station=station, name=name, positioned_product=segment
+            file, alignment, distance_along=dist_along, station=station, name=name, positioned_product=segment
         )
-        ifcopenshell.api.nest.reorder_nesting(file, referent, -1, -1)
 
         if len(curve.Segments) == 2 and layout.is_a("IfcAlignmentHorizontal"):
             # this is the first real segment in the horizontal alignment

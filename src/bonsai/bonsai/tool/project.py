@@ -36,7 +36,7 @@ from collections import defaultdict
 from bonsai.bim.ifc import IfcStore
 from ifcopenshell.api.project.append_asset import APPENDABLE_ASSET_TYPES
 from pathlib import Path
-from typing import Optional, Union, TYPE_CHECKING
+from typing import NamedTuple, Optional, Union, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from bonsai.bim.module.project.prop import BIMProjectProperties, MeasureToolSettings
@@ -437,3 +437,68 @@ class Project(bonsai.core.tool.Project):
                     remove_root(rel)
             else:
                 assert False, f"Shouldn't be here, {rel}"
+
+    class HeaderData(NamedTuple):
+        mvd: str
+        author_name: str
+        author_email: str
+        organisation_name: str
+        organisation_email: str
+        authorisation: str
+
+    @classmethod
+    def get_header_data(cls) -> HeaderData:
+        assert (ifc_file := tool.Ifc.get())
+
+        # MVD.
+        if isinstance(ifc_file, ifcopenshell.sqlite):
+            mvd = ifc_file.mvd_str
+        else:
+            mvd = "".join(ifc_file.header.file_description.description)
+        if f"[" in mvd:
+            mvd = mvd.split("[")[1][0:-1]
+
+        # Author.
+        author = ifc_file.header.file_name.author
+        author_name, author_email = "", ""
+        if author:
+            author_name = author[0]
+            if len(author) > 1:
+                author_email = author[1]
+
+        # Organization.
+        organization_name, organization_email = "", ""
+        organization = ifc_file.header.file_name.organization
+        if organization:
+            organization_name = organization[0]
+            if len(organization) > 1:
+                organization_email = organization[1]
+
+        authorization = ifc_file.header.file_name.authorization or ""
+        return cls.HeaderData(
+            mvd=mvd,
+            author_name=author_name,
+            author_email=author_email,
+            organisation_name=organization_name,
+            organisation_email=organization_email,
+            authorisation=authorization,
+        )
+
+    @classmethod
+    def get_clipping_planes_normals(cls):
+        normals = []
+        for clipping_plane in tool.Project.get_project_props().clipping_planes:
+            plane = clipping_plane.obj
+            if not plane or not plane.data:
+                continue
+
+            if plane.mode == "EDIT":
+                continue  # A profile decorator or something else is used here.
+
+            v1 = plane.matrix_world @ plane.data.vertices[0].co
+            v2 = plane.matrix_world @ plane.data.vertices[1].co
+            v3 = plane.matrix_world @ plane.data.vertices[2].co
+            d1 = v1 - v2
+            d2 = v3 - v2
+            normals.append((v1, d1.cross(d2).normalized()))
+        return normals
