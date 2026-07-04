@@ -117,16 +117,19 @@ namespace ifcopenshell {
 			// SVG line classification (issue #3668)
 			struct SvgCreaseThresholdDegrees : public SettingBase<SvgCreaseThresholdDegrees, double> {
 				static constexpr const char* const name = "svg-crease-threshold-deg";
+				static constexpr const char* const description = "SVG edge classification: edges below this dihedral angle (degrees) are marked as crease.";
 				static constexpr double defaultvalue = 12.0;
 			};
 
 			struct SvgSharpThresholdDegrees : public SettingBase<SvgSharpThresholdDegrees, double> {
 				static constexpr const char* const name = "svg-sharp-threshold-deg";
+				static constexpr const char* const description = "SVG edge classification: edges above this dihedral angle (degrees) are marked as sharp.";
 				static constexpr double defaultvalue = 45.0;
 			};
 
 			struct SvgEmitHiddenEdges : public SettingBase<SvgEmitHiddenEdges, bool> {
 				static constexpr const char* const name = "svg-emit-hidden-edges";
+				static constexpr const char* const description = "Emit hidden edges in SVG output (otherwise hidden edges are omitted).";
 				static constexpr bool defaultvalue = false;
 			};
 
