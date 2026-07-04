@@ -32,6 +32,7 @@
 #include <map>
 #include <vector>
 #include <cmath>
+#include <cstdlib>
 
 #include <gp_Pln.hxx>
 #include <gp_Trsf.hxx>
@@ -103,6 +104,25 @@
 #include "SvgSerializer.h"
 
 const double PI2 = M_PI * 2.;
+
+namespace {
+	inline double read_env_double(const char* name, double fallback) {
+		const char* v = std::getenv(name);
+		if (!v) return fallback;
+		try { return boost::lexical_cast<double>(v); }
+		catch (...) { return fallback; }
+	}
+
+	inline bool read_env_bool(const char* name, bool fallback) {
+		const char* v = std::getenv(name);
+		if (!v) return fallback;
+		std::string s(v);
+		std::transform(s.begin(), s.end(), s.begin(), ::tolower);
+		if (s == "1" || s == "true" || s == "yes" || s == "on") return true;
+		if (s == "0" || s == "false" || s == "no" || s == "off") return false;
+		return fallback;
+	}
+}
 
 bool SvgSerializer::ready() {
 	// Start from declared defaults
@@ -244,23 +264,6 @@ namespace {
 
 		// both back-facing
 		return edge_style_class::hidden;
-	}
-
-	inline double read_env_double(const char* name, double fallback) {
-		const char* v = std::getenv(name);
-		if (!v) return fallback;
-		try { return boost::lexical_cast<double>(v); }
-		catch (...) { return fallback; }
-	}
-
-	inline bool read_env_bool(const char* name, bool fallback) {
-		const char* v = std::getenv(name);
-		if (!v) return fallback;
-		std::string s(v);
-		std::transform(s.begin(), s.end(), s.begin(), ::tolower);
-		if (s == "1" || s == "true" || s == "yes" || s == "on") return true;
-		if (s == "0" || s == "false" || s == "no" || s == "off") return false;
-		return fallback;
 	}
 }
 
