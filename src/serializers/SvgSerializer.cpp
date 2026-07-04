@@ -29,6 +29,9 @@
 #include <limits>
 #include <algorithm>
 #include <numeric>
+#include <map>
+#include <vector>
+#include <cmath>
 
 #include <gp_Pln.hxx>
 #include <gp_Trsf.hxx>
@@ -120,6 +123,94 @@ namespace {
 		if (existing.find(css_class) == std::string::npos) {
 			group_attrs.replace(start, end - start, existing + " " + css_class);
 		}
+	}
+
+	enum class edge_style_class {
+		contour,
+		crease,
+		sharp,
+		hidden
+	};
+
+	inline const char* edge_style_class_name(edge_style_class c) {
+		switch (c) {
+			case edge_style_class::contour: return "contour";
+			case edge_style_class::crease:  return "crease";
+			case edge_style_class::sharp:   return "sharp";
+			default:                        return "hidden";
+		}
+	}
+
+	inline double clamp_dot(double v) {
+		if (v < -1.0) return -1.0;
+		if (v >  1.0) return  1.0;
+		return v;
+	}
+
+	inline double angle_deg_between(const gp_Dir& a, const gp_Dir& b) {
+		return std::acos(clamp_dot(a.Dot(b))) * 180.0 / M_PI;
+	}
+
+	inline bool face_normal_from_planar_face(const TopoDS_Face& f, gp_Dir& out) {
+		auto s = BRep_Tool::Surface(f);
+		if (s->DynamicType() != STANDARD_TYPE(Geom_Plane)) {
+			return false;
+		}
+		auto p = Handle(Geom_Plane)::DownCast(s);
+		gp_Dir d = p->Axis().Direction();
+		if (f.Orientation() == TopAbs_REVERSED) {
+			d.Reverse();
+		}
+		out = d;
+		return true;
+	}
+
+	inline edge_style_class classify_edge_from_faces(
+		const TopoDS_Edge& edge,
+		const NCollection_List<TopoDS_Shape>& faces,
+		const gp_Dir& projection_direction,
+		double crease_threshold_deg,
+		double sharp_threshold_deg,
+		bool emit_hidden_edges
+	) {
+		(void)edge;
+		(void)emit_hidden_edges;
+
+		// Non-manifold / boundary: silhouette-ish, treat as contour
+		if (faces.Extent() != 2) {
+			return edge_style_class::contour;
+		}
+
+		const auto& f0 = TopoDS::Face(faces.First());
+		const auto& f1 = TopoDS::Face(faces.Last());
+
+		gp_Dir n0, n1;
+		if (!face_normal_from_planar_face(f0, n0) || !face_normal_from_planar_face(f1, n1)) {
+			// conservative fallback
+			return edge_style_class::contour;
+		}
+
+		const double d0 = projection_direction.Dot(n0);
+		const double d1 = projection_direction.Dot(n1);
+
+		const bool f0_front = d0 < 0.0;
+		const bool f1_front = d1 < 0.0;
+
+		// front/back flip => contour
+		if (f0_front != f1_front) {
+			return edge_style_class::contour;
+		}
+
+		// both front-facing => crease / sharp by dihedral
+		if (f0_front && f1_front) {
+			double ang = angle_deg_between(n0, n1);
+			if (ang < crease_threshold_deg) return edge_style_class::crease;
+			if (ang > sharp_threshold_deg)  return edge_style_class::sharp;
+			return edge_style_class::hidden;
+		}
+
+		// both back-facing
+		return edge_style_class::hidden;
 	}
 }
 
@@ -1824,7 +1915,8 @@ void SvgSerializer::draw_hlr(const gp_Pln& pln, const drawing_key& drawing_name)
 
 			exp.Init(hlr_compound, TopAbs_EDGE);
 			BRep_Builder B;
-			path_object* po_contour;
+
+			// Base group attributes (projection + product class)
 			std::string name;
 			if (p.first) {
 				name = nameElement(p.first);
@@ -1833,21 +1925,60 @@ void SvgSerializer::draw_hlr(const gp_Pln& pln, const drawing_key& drawing_name)
 				name = "class=\"projection\"";
 			}
 
-			// Minimal classification step: treat current HLR projection edges as contour
-			std::string contour_name = name;
-			add_svg_class_to_group_id(contour_name, "contour");
+			// Build edge->faces map from original (unmirrored) hlr shape for adjacency checks
+			NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher> edge_faces;
+			TopExp::MapShapesAndAncestors(hlr_compound_unmirrored, TopAbs_EDGE, TopAbs_FACE, edge_faces);
 
-			if (drawing_name.first) {
-				po_contour = &start_path(pln, drawing_name.first, contour_name);
-			} else {
-				po_contour = &start_path(pln, drawing_name.second, contour_name);
-			}
+			// Thresholds (can later be promoted to settings)
+			const double crease_threshold_deg = 12.0;
+			const double sharp_threshold_deg  = 45.0;
+			const bool emit_hidden_edges = false;
+
+			std::map<std::string, path_object*> grouped_paths;
+
+			auto get_group = [&](const std::string& cls) -> path_object* {
+				auto itg = grouped_paths.find(cls);
+				if (itg != grouped_paths.end()) return itg->second;
+
+				std::string cls_name = name;
+				add_svg_class_to_group_id(cls_name, cls);
+
+				path_object* po = nullptr;
+				if (drawing_name.first) {
+					po = &start_path(pln, drawing_name.first, cls_name);
+				} else {
+					po = &start_path(pln, drawing_name.second, cls_name);
+				}
+				grouped_paths.insert({cls, po});
+				return po;
+			};
 
 			for (; exp.More(); exp.Next()) {
+				const TopoDS_Edge edge = TopoDS::Edge(exp.Current());
+
+				edge_style_class c = edge_style_class::contour;
+				if (edge_faces.Contains(edge)) {
+					c = classify_edge_from_faces(
+						edge,
+						edge_faces.FindFromKey(edge),
+						pln.Axis().Direction(),
+						crease_threshold_deg,
+						sharp_threshold_deg,
+						emit_hidden_edges
+					);
+				}
+
+				if (c == edge_style_class::hidden && !emit_hidden_edges) {
+					continue;
+				}
+
+				const std::string cls = edge_style_class_name(c);
+				path_object* po = get_group(cls);
+
 				TopoDS_Wire w;
 				B.MakeWire(w);
-				B.Add(w, exp.Current());
-				write(*po_contour, w);
+				B.Add(w, edge);
+				write(*po, w);
 			}
 		}
 	}
