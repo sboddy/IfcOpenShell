@@ -571,6 +571,24 @@ class BIMCameraProperties(PropertyGroup):
         default=True,
     )
 
+    # SVG edge classification (IfcOpenShell feature #3668)
+    svg_crease_threshold_deg: bpy.props.FloatProperty(
+        name="SVG Crease Threshold (deg)",
+        default=12.0,
+        min=0.0,
+        max=180.0,
+    )
+    svg_sharp_threshold_deg: bpy.props.FloatProperty(
+        name="SVG Sharp Threshold (deg)",
+        default=45.0,
+        min=0.0,
+        max=180.0,
+    )
+    svg_emit_hidden_edges: bpy.props.BoolProperty(
+        name="Emit Hidden SVG Edges",
+        default=False,
+    )
+
     if TYPE_CHECKING:
         linework_mode: Literal["OPENCASCADE", "FREESTYLE"]
         fill_mode: Literal["NONE", "SHAPELY", "SVGFILL"]

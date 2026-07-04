@@ -118,6 +118,14 @@ class BIM_PT_camera(Panel):
         row = self.layout.row()
         row.prop(props, "height")
 
+        # SVG edge classification (IfcOpenShell feature #3668)
+        row = self.layout.row()
+        row.prop(props, "svg_crease_threshold_deg")
+        row = self.layout.row()
+        row.prop(props, "svg_sharp_threshold_deg")
+        row = self.layout.row()
+        row.prop(props, "svg_emit_hidden_edges")
+
         render = context.scene.render
         MEGAPIXELS_WARNING_THRESHOLD = 50
         # See #6686.

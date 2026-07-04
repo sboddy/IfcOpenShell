@@ -1304,6 +1304,22 @@ class CreateDrawing(bpy.types.Operator):
         self.svg_settings.set("iterator-output", ifcopenshell.ifcopenshell_wrapper.NATIVE)
         self.svg_buffer = ifcopenshell.geom.serializers.buffer()
         self.serialiser_settings = ifcopenshell.geom.serializer_settings()
+
+        # SVG edge classification (IfcOpenShell feature #3668)
+        if self.svg_crease_threshold_deg > self.svg_sharp_threshold_deg:
+            self.svg_crease_threshold_deg, self.svg_sharp_threshold_deg = (
+                self.svg_sharp_threshold_deg,
+                self.svg_crease_threshold_deg,
+            )
+        # Keep defaults aligned with C++ serializer defaults.
+        try:
+            self.serialiser_settings.set("svg-crease-threshold-deg", float(getattr(self, "svg_crease_threshold_deg", 12.0)))
+            self.serialiser_settings.set("svg-sharp-threshold-deg", float(getattr(self, "svg_sharp_threshold_deg", 45.0)))
+            self.serialiser_settings.set("svg-emit-hidden-edges", bool(getattr(self, "svg_emit_hidden_edges", False)))
+        except Exception:
+            # Backward compatibility with older ifcopenshell builds that do not expose these keys.
+            pass
+
         self.serialiser = ifcopenshell.geom.serializers.svg(
             self.svg_buffer, self.svg_settings, self.serialiser_settings
         )
