@@ -1978,11 +1978,12 @@ void SvgSerializer::draw_hlr(const gp_Pln& pln, const drawing_key& drawing_name)
 				name = "class=\"projection\"";
 			}
 
-			// Build edge->faces map from original (unmirrored) hlr shape for adjacency checks
+			// Build edge->faces map from ORIGINAL (unmirrored) HLR shape.
+			// Classification must use these exact edge instances.
 			NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher> edge_faces;
 			TopExp::MapShapesAndAncestors(hlr_compound_unmirrored, TopAbs_EDGE, TopAbs_FACE, edge_faces);
 
-			// Thresholds (can later be promoted to settings)
+			// Thresholds
 			const double crease_threshold_deg = svg_crease_threshold_deg_;
 			const double sharp_threshold_deg  = svg_sharp_threshold_deg_;
 			const bool emit_hidden_edges = svg_emit_hidden_edges_;
@@ -2006,14 +2007,17 @@ void SvgSerializer::draw_hlr(const gp_Pln& pln, const drawing_key& drawing_name)
 				return po;
 			};
 
-			for (; exp.More(); exp.Next()) {
-				const TopoDS_Edge edge = TopoDS::Edge(exp.Current());
+			TopExp_Explorer exp_unmir(hlr_compound_unmirrored, TopAbs_EDGE);
+			BRep_Builder B;
+
+			for (; exp_unmir.More(); exp_unmir.Next()) {
+				const TopoDS_Edge edge_unmir = TopoDS::Edge(exp_unmir.Current());
 
 				edge_style_class c = edge_style_class::contour;
-				if (edge_faces.Contains(edge)) {
+				if (edge_faces.Contains(edge_unmir)) {
 					c = classify_edge_from_faces(
-						edge,
-						edge_faces.FindFromKey(edge),
+						edge_unmir,
+						edge_faces.FindFromKey(edge_unmir),
 						pln.Axis().Direction(),
 						crease_threshold_deg,
 						sharp_threshold_deg,
@@ -2030,8 +2034,26 @@ void SvgSerializer::draw_hlr(const gp_Pln& pln, const drawing_key& drawing_name)
 
 				TopoDS_Wire w;
 				B.MakeWire(w);
-				B.Add(w, edge);
-				write(*po, w);
+				B.Add(w, edge_unmir);
+
+				// Apply mirroring only for writing where needed, AFTER classification.
+				TopoDS_Shape w_to_write = w;
+				if (drawing_name.first == nullptr) {
+					gp_Trsf trsf_mirror;
+					if (!mirror_y_) {
+						trsf_mirror.SetMirror(gp_Ax2(gp::Origin(), gp::DY()));
+					}
+					if (mirror_x_) {
+						gp_Trsf mirror_x;
+						mirror_x.SetMirror(gp_Ax2(gp::Origin(), gp::DX()));
+						trsf_mirror.PreMultiply(mirror_x);
+					}
+					BRepBuilderAPI_Transform make_transform_mirror_wire(w, trsf_mirror, true);
+					make_transform_mirror_wire.Build();
+					w_to_write = make_transform_mirror_wire.Shape();
+				}
+
+				write(*po, w_to_write);
 			}
 		}
 	}
