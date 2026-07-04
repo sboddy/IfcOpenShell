@@ -105,6 +105,24 @@ bool SvgSerializer::ready() {
 	return true;
 }
 
+namespace {
+	inline void add_svg_class_to_group_id(std::string& group_attrs, const std::string& css_class) {
+		// group_attrs looks like: id="..." class="IfcWall ..." ifc:name="..."
+		const std::string needle = "class=\"";
+		auto pos = group_attrs.find(needle);
+		if (pos == std::string::npos) return;
+
+		auto start = pos + needle.size();
+		auto end = group_attrs.find('"', start);
+		if (end == std::string::npos) return;
+
+		const std::string existing = group_attrs.substr(start, end - start);
+		if (existing.find(css_class) == std::string::npos) {
+			group_attrs.replace(start, end - start, existing + " " + css_class);
+		}
+	}
+}
+
 void SvgSerializer::write(path_object& p, const TopoDS_Shape& comp_or_wire, boost::optional<std::vector<double>> dash_array) {
 	/* ShapeFix_Wire fix;
 	Handle(ShapeExtend_WireData) data = new ShapeExtend_WireData;
@@ -1806,7 +1824,7 @@ void SvgSerializer::draw_hlr(const gp_Pln& pln, const drawing_key& drawing_name)
 
 			exp.Init(hlr_compound, TopAbs_EDGE);
 			BRep_Builder B;
-			path_object* po;
+			path_object* po_contour;
 			std::string name;
 			if (p.first) {
 				name = nameElement(p.first);
@@ -1814,18 +1832,23 @@ void SvgSerializer::draw_hlr(const gp_Pln& pln, const drawing_key& drawing_name)
 			} else {
 				name = "class=\"projection\"";
 			}
+
+			// Minimal classification step: treat current HLR projection edges as contour
+			std::string contour_name = name;
+			add_svg_class_to_group_id(contour_name, "contour");
+
 			if (drawing_name.first) {
-				po = &start_path(pln, drawing_name.first, name);
+				po_contour = &start_path(pln, drawing_name.first, contour_name);
 			} else {
-				po = &start_path(pln, drawing_name.second, name);
+				po_contour = &start_path(pln, drawing_name.second, contour_name);
 			}
+
 			for (; exp.More(); exp.Next()) {
 				TopoDS_Wire w;
 				B.MakeWire(w);
 				B.Add(w, exp.Current());
-				write(*po, w);
+				write(*po_contour, w);
 			}
-
 		}
 	}
 }
@@ -2236,6 +2259,27 @@ void SvgSerializer::doWriteHeader() {
 			"            fill: none;\n"
 			"            stroke-opacity: 0.6;\n"
 			"        }\n"
+			"        /* Edge style classes (issue #3668) */\n"
+			"        .projection.contour path,\n"
+			"        .contour path {\n"
+			"            stroke: #222222;\n"
+			"            fill: none;\n"
+			"            stroke-opacity: 0.9;\n"
+			"        }\n"
+			"        .projection.crease path,\n"
+			"        .crease path {\n"
+			"            stroke: #444444;\n"
+			"            fill: none;\n"
+			"            stroke-opacity: 0.7;\n"
+			"        }\n"
+			"        .projection.sharp path,\n"
+			"        .sharp path {\n"
+			"            stroke: #111111;\n"
+			"            fill: none;\n"
+			"            stroke-opacity: 1.0;\n"
+			"        }\n"
+			"        .projection.hidden path,\n"
+			"        .hidden path { display: none; }\n"
 			"        .IfcDoor path,\n"
 			"        .Symbol path {\n"
 			"            fill: none;\n"
