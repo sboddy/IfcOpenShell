@@ -105,9 +105,31 @@
 const double PI2 = M_PI * 2.;
 
 bool SvgSerializer::ready() {
-	svg_crease_threshold_deg_ = read_env_double("IFCOPENSHELL_SVG_CREASE_THRESHOLD_DEG", 12.0);
-	svg_sharp_threshold_deg_ = read_env_double("IFCOPENSHELL_SVG_SHARP_THRESHOLD_DEG", 45.0);
-	svg_emit_hidden_edges_ = read_env_bool("IFCOPENSHELL_SVG_EMIT_HIDDEN_EDGES", false);
+	// Start from declared defaults
+	svg_crease_threshold_deg_ = 12.0;
+	svg_sharp_threshold_deg_ = 45.0;
+	svg_emit_hidden_edges_ = false;
+
+	// Prefer formal geometry settings when present
+	try {
+		svg_crease_threshold_deg_ =
+			geometry_settings().get<ifcopenshell::geometry::settings::SvgCreaseThresholdDegrees>().get();
+	} catch (...) {}
+
+	try {
+		svg_sharp_threshold_deg_ =
+			geometry_settings().get<ifcopenshell::geometry::settings::SvgSharpThresholdDegrees>().get();
+	} catch (...) {}
+
+	try {
+		svg_emit_hidden_edges_ =
+			geometry_settings().get<ifcopenshell::geometry::settings::SvgEmitHiddenEdges>().get();
+	} catch (...) {}
+
+	// Optional env fallback (keeps your previous behavior)
+	svg_crease_threshold_deg_ = read_env_double("IFCOPENSHELL_SVG_CREASE_THRESHOLD_DEG", svg_crease_threshold_deg_);
+	svg_sharp_threshold_deg_ = read_env_double("IFCOPENSHELL_SVG_SHARP_THRESHOLD_DEG", svg_sharp_threshold_deg_);
+	svg_emit_hidden_edges_ = read_env_bool("IFCOPENSHELL_SVG_EMIT_HIDDEN_EDGES", svg_emit_hidden_edges_);
 
 	// sanitize
 	if (svg_crease_threshold_deg_ < 0.0) svg_crease_threshold_deg_ = 0.0;
@@ -115,6 +137,7 @@ bool SvgSerializer::ready() {
 	if (svg_crease_threshold_deg_ > svg_sharp_threshold_deg_) {
 		std::swap(svg_crease_threshold_deg_, svg_sharp_threshold_deg_);
 	}
+
 	return true;
 }
 
