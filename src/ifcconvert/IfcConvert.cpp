@@ -405,13 +405,6 @@ int main(int argc, char** argv) {
 			"Always enable hidden line rendering instead of only on elevations")
 		("svg-without-storeys", "Don't emit drawings for building storeys")
 		("svg-no-css", "Don't emit CSS style declarations")
-		// SVG edge classification options
-		("svg-crease-threshold-deg", po::value<double>(),
-			"SVG edge class: angle below this (deg) => crease")
-		("svg-sharp-threshold-deg",  po::value<double>(),
-			"SVG edge class: angle above this (deg) => sharp")
-		("svg-emit-hidden-edges",    po::bool_switch(),
-			"Emit hidden-class edges instead of skipping them")
 		("door-arcs", "Draw door openings arcs for IfcDoor elements")
 		("section-height", po::value<double>(&section_height),
 		    "Specifies the cut section height for SVG 2D geometry.")
