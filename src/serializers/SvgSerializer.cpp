@@ -105,6 +105,16 @@
 const double PI2 = M_PI * 2.;
 
 bool SvgSerializer::ready() {
+	svg_crease_threshold_deg_ = read_env_double("IFCOPENSHELL_SVG_CREASE_THRESHOLD_DEG", 12.0);
+	svg_sharp_threshold_deg_ = read_env_double("IFCOPENSHELL_SVG_SHARP_THRESHOLD_DEG", 45.0);
+	svg_emit_hidden_edges_ = read_env_bool("IFCOPENSHELL_SVG_EMIT_HIDDEN_EDGES", false);
+
+	// sanitize
+	if (svg_crease_threshold_deg_ < 0.0) svg_crease_threshold_deg_ = 0.0;
+	if (svg_sharp_threshold_deg_ > 180.0) svg_sharp_threshold_deg_ = 180.0;
+	if (svg_crease_threshold_deg_ > svg_sharp_threshold_deg_) {
+		std::swap(svg_crease_threshold_deg_, svg_sharp_threshold_deg_);
+	}
 	return true;
 }
 
@@ -211,6 +221,23 @@ namespace {
 
 		// both back-facing
 		return edge_style_class::hidden;
+	}
+
+	inline double read_env_double(const char* name, double fallback) {
+		const char* v = std::getenv(name);
+		if (!v) return fallback;
+		try { return boost::lexical_cast<double>(v); }
+		catch (...) { return fallback; }
+	}
+
+	inline bool read_env_bool(const char* name, bool fallback) {
+		const char* v = std::getenv(name);
+		if (!v) return fallback;
+		std::string s(v);
+		std::transform(s.begin(), s.end(), s.begin(), ::tolower);
+		if (s == "1" || s == "true" || s == "yes" || s == "on") return true;
+		if (s == "0" || s == "false" || s == "no" || s == "off") return false;
+		return fallback;
 	}
 }
 
@@ -1930,9 +1957,9 @@ void SvgSerializer::draw_hlr(const gp_Pln& pln, const drawing_key& drawing_name)
 			TopExp::MapShapesAndAncestors(hlr_compound_unmirrored, TopAbs_EDGE, TopAbs_FACE, edge_faces);
 
 			// Thresholds (can later be promoted to settings)
-			const double crease_threshold_deg = 12.0;
-			const double sharp_threshold_deg  = 45.0;
-			const bool emit_hidden_edges = false;
+			const double crease_threshold_deg = svg_crease_threshold_deg_;
+			const double sharp_threshold_deg  = svg_sharp_threshold_deg_;
+			const bool emit_hidden_edges = svg_emit_hidden_edges_;
 
 			std::map<std::string, path_object*> grouped_paths;
 
