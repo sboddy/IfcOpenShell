@@ -567,6 +567,9 @@ protected:
 	bool mirror_y_;
 	bool mirror_x_;
 	bool only_valid_ = false;
+	double svg_crease_threshold_deg_ = 12.0;
+	double svg_sharp_threshold_deg_ = 45.0;
+	bool svg_emit_hidden_edges_ = false;
 
 	int profile_threshold_;
 

@@ -29,6 +29,10 @@
 #include <limits>
 #include <algorithm>
 #include <numeric>
+#include <map>
+#include <vector>
+#include <cmath>
+#include <cstdlib>
 
 #include <gp_Pln.hxx>
 #include <gp_Trsf.hxx>
@@ -101,8 +105,229 @@
 
 const double PI2 = M_PI * 2.;
 
+namespace {
+	inline double read_env_double(const char* name, double fallback) {
+		const char* v = std::getenv(name);
+		if (!v) return fallback;
+		try { return boost::lexical_cast<double>(v); }
+		catch (...) { return fallback; }
+	}
+
+	inline bool read_env_bool(const char* name, bool fallback) {
+		const char* v = std::getenv(name);
+		if (!v) return fallback;
+		std::string s(v);
+		std::transform(s.begin(), s.end(), s.begin(), ::tolower);
+		if (s == "1" || s == "true" || s == "yes" || s == "on") return true;
+		if (s == "0" || s == "false" || s == "no" || s == "off") return false;
+		return fallback;
+	}
+}
 bool SvgSerializer::ready() {
+	// Start from declared defaults
+	svg_crease_threshold_deg_ = 12.0;
+	svg_sharp_threshold_deg_ = 45.0;
+	svg_emit_hidden_edges_ = false;
+
+	// Prefer formal geometry settings when present
+	try {
+		svg_crease_threshold_deg_ =
+			geometry_settings().get<ifcopenshell::geometry::settings::SvgCreaseThresholdDegrees>().get();
+	} catch (...) {}
+
+	try {
+		svg_sharp_threshold_deg_ =
+			geometry_settings().get<ifcopenshell::geometry::settings::SvgSharpThresholdDegrees>().get();
+	} catch (...) {}
+
+	try {
+		svg_emit_hidden_edges_ =
+			geometry_settings().get<ifcopenshell::geometry::settings::SvgEmitHiddenEdges>().get();
+	} catch (...) {}
+
+	// Optional env fallback (keeps your previous behavior)
+	svg_crease_threshold_deg_ = read_env_double("IFCOPENSHELL_SVG_CREASE_THRESHOLD_DEG", svg_crease_threshold_deg_);
+	svg_sharp_threshold_deg_ = read_env_double("IFCOPENSHELL_SVG_SHARP_THRESHOLD_DEG", svg_sharp_threshold_deg_);
+	svg_emit_hidden_edges_ = read_env_bool("IFCOPENSHELL_SVG_EMIT_HIDDEN_EDGES", svg_emit_hidden_edges_);
+
+	// sanitize
+	if (svg_crease_threshold_deg_ < 0.0) svg_crease_threshold_deg_ = 0.0;
+	if (svg_sharp_threshold_deg_ > 180.0) svg_sharp_threshold_deg_ = 180.0;
+	if (svg_crease_threshold_deg_ > svg_sharp_threshold_deg_) {
+		std::swap(svg_crease_threshold_deg_, svg_sharp_threshold_deg_);
+	}
 	return true;
+}
+
+namespace {
+	inline void add_svg_class_to_group_id(std::string& group_attrs, const std::string& css_class) {
+		// group_attrs looks like: id="..." class="IfcWall ..." ifc:name="..."
+		const std::string needle = "class=\"";
+		auto pos = group_attrs.find(needle);
+		if (pos == std::string::npos) return;
+
+		auto start = pos + needle.size();
+		auto end = group_attrs.find('"', start);
+		if (end == std::string::npos) return;
+
+		const std::string existing = group_attrs.substr(start, end - start);
+		if (existing.find(css_class) == std::string::npos) {
+			group_attrs.replace(start, end - start, existing + " " + css_class);
+		}
+	}
+
+	enum class edge_style_class {
+		contour,
+		crease,
+		sharp,
+		hidden
+	};
+
+	inline const char* edge_style_class_name(edge_style_class c) {
+		switch (c) {
+			case edge_style_class::contour: return "contour";
+			case edge_style_class::crease:  return "crease";
+			case edge_style_class::sharp:   return "sharp";
+			default:                        return "hidden";
+		}
+	}
+
+	inline double clamp_dot(double v) {
+		if (v < -1.0) return -1.0;
+		if (v >  1.0) return  1.0;
+		return v;
+	}
+
+	inline double angle_deg_between(const gp_Dir& a, const gp_Dir& b) {
+		return std::acos(clamp_dot(a.Dot(b))) * 180.0 / M_PI;
+	}
+
+	inline bool face_normal_from_planar_face(const TopoDS_Face& f, gp_Dir& out) {
+		auto s = BRep_Tool::Surface(f);
+		if (s->DynamicType() != STANDARD_TYPE(Geom_Plane)) {
+			return false;
+		}
+		auto p = Handle(Geom_Plane)::DownCast(s);
+		gp_Dir d = p->Axis().Direction();
+		if (f.Orientation() == TopAbs_REVERSED) {
+			d.Reverse();
+		}
+		out = d;
+		return true;
+	}
+
+	// Add near top of file (or inside an anonymous namespace in this translation unit)
+	struct svg_edge_classify_debug_counters {
+		size_t calls = 0;
+		size_t face_count_0 = 0;
+		size_t face_count_1 = 0;
+		size_t face_count_2plus = 0;
+		size_t normal_fail = 0;
+		size_t angle_computed = 0;
+		size_t hidden_marked = 0;
+		size_t returned_contour = 0;
+		size_t returned_crease = 0;
+		size_t returned_sharp = 0;
+		size_t returned_hidden = 0;
+	};
+
+	static svg_edge_classify_debug_counters g_svg_cls_dbg;
+	inline edge_style_class classify_edge_from_faces(
+		const TopoDS_Edge& edge,
+		const NCollection_List<TopoDS_Shape>& faces,
+		const gp_Dir& projection_direction,
+		double crease_threshold_deg,
+		double sharp_threshold_deg,
+		bool emit_hidden_edges
+	) {
+		// In classify_edge_from_faces(...), at function start:
+		++g_svg_cls_dbg.calls;
+
+		// Materialize faces list into vector (or equivalent) so we can count/index safely
+		std::vector<TopoDS_Face> faces_vec;
+		for (NCollection_List<TopoDS_Shape>::Iterator it(faces); it.More(); it.Next()) {
+			const TopoDS_Shape& s = it.Value();
+			if (s.ShapeType() == TopAbs_FACE) {
+				faces_vec.push_back(TopoDS::Face(s));
+			}
+		}
+
+		if (faces_vec.empty()) {
+			++g_svg_cls_dbg.face_count_0;
+			++g_svg_cls_dbg.returned_contour;
+			return edge_style_class::contour;
+		}
+		if (faces_vec.size() == 1) {
+			++g_svg_cls_dbg.face_count_1;
+			++g_svg_cls_dbg.returned_contour;
+			return edge_style_class::contour;
+		}
+		++g_svg_cls_dbg.face_count_2plus;
+
+		// ... when normal extraction fails anywhere:
+		++g_svg_cls_dbg.normal_fail;
+		++g_svg_cls_dbg.returned_contour;
+		return edge_style_class::contour;
+
+		// ... when you successfully compute dihedral/angle:
+		++g_svg_cls_dbg.angle_computed;
+
+		// ... when hidden condition is detected:
+		++g_svg_cls_dbg.hidden_marked;
+		// if returning hidden:
+		++g_svg_cls_dbg.returned_hidden;
+		return edge_style_class::hidden;
+
+		// ... when returning crease:
+		++g_svg_cls_dbg.returned_crease;
+		return edge_style_class::crease;
+
+		// ... when returning sharp:
+		++g_svg_cls_dbg.returned_sharp;
+		return edge_style_class::sharp;
+
+		// ... final default contour return:
+		++g_svg_cls_dbg.returned_contour;
+		return edge_style_class::contour;
+		(void)edge;
+		(void)emit_hidden_edges;
+
+		// Non-manifold / boundary: silhouette-ish, treat as contour
+		if (faces.Extent() != 2) {
+			return edge_style_class::contour;
+		}
+
+		const auto& f0 = TopoDS::Face(faces.First());
+		const auto& f1 = TopoDS::Face(faces.Last());
+
+		gp_Dir n0, n1;
+		if (!face_normal_from_planar_face(f0, n0) || !face_normal_from_planar_face(f1, n1)) {
+			// conservative fallback
+			return edge_style_class::contour;
+		}
+
+		const double d0 = projection_direction.Dot(n0);
+		const double d1 = projection_direction.Dot(n1);
+
+		const bool f0_front = d0 < 0.0;
+		const bool f1_front = d1 < 0.0;
+
+		// front/back flip => contour
+		if (f0_front != f1_front) {
+			return edge_style_class::contour;
+		}
+
+		// both front-facing => crease / sharp by dihedral
+		if (f0_front && f1_front) {
+			double ang = angle_deg_between(n0, n1);
+			if (ang < crease_threshold_deg) return edge_style_class::crease;
+			if (ang > sharp_threshold_deg)  return edge_style_class::sharp;
+			return edge_style_class::hidden;
+		}
+
+		// both back-facing
+		return edge_style_class::hidden;
+	}
 }
 
 void SvgSerializer::write(path_object& p, const TopoDS_Shape& comp_or_wire, boost::optional<std::vector<double>> dash_array) {
@@ -564,7 +789,7 @@ namespace {
 }
 
 void SvgSerializer::write(const IfcGeom::BRepElement* brep_obj) {
-
+try{
 	boost::optional<std::string> object_type;
 	if (!brep_obj->product()->get("ObjectType").isNull()) {
 		object_type = static_cast<std::string>(brep_obj->product()->get("ObjectType"));
@@ -780,6 +1005,16 @@ void SvgSerializer::write(const IfcGeom::BRepElement* brep_obj) {
 	if (emit_building_storeys_) {
 		write(data);
 	}
+
+} catch (const Standard_Failure& e) {
+	logger_.Error("SER", 90, std::string("SvgSerializer::writer OCC exception: ") + e.GetMessageString());
+} catch (const std::exception& e) {
+	logger_.Error("SER", 91, std::string("SvgSerializer::writer std::exception: ") + e.what());
+} catch (...) {
+	logger_.Error("SER", 92, "SvgSerializer::writer unknown exception");
+}
+
+// end of func
 }
 
 namespace {
@@ -1806,7 +2041,7 @@ void SvgSerializer::draw_hlr(const gp_Pln& pln, const drawing_key& drawing_name)
 
 			exp.Init(hlr_compound, TopAbs_EDGE);
 			BRep_Builder B;
-			path_object* po;
+			// Base group attributes (projection + product class)
 			std::string name;
 			if (p.first) {
 				name = nameElement(p.first);
@@ -1814,17 +2049,137 @@ void SvgSerializer::draw_hlr(const gp_Pln& pln, const drawing_key& drawing_name)
 			} else {
 				name = "class=\"projection\"";
 			}
-			if (drawing_name.first) {
-				po = &start_path(pln, drawing_name.first, name);
-			} else {
-				po = &start_path(pln, drawing_name.second, name);
+                        if (name.find("class=\"") != std::string::npos) {
+				boost::replace_all(name, "class=\"", "class=\"debug-draw-hlr-hit ");
 			}
-			for (; exp.More(); exp.Next()) {
+
+			// Build edge->faces map from ORIGINAL (unmirrored) HLR shape.
+			// Classification must use these exact edge instances.
+			NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher> edge_faces;
+			TopExp::MapShapesAndAncestors(hlr_compound_unmirrored, TopAbs_EDGE, TopAbs_FACE, edge_faces);
+
+			// Thresholds
+			const double crease_threshold_deg = svg_crease_threshold_deg_;
+			const double sharp_threshold_deg  = svg_sharp_threshold_deg_;
+			const bool emit_hidden_edges = svg_emit_hidden_edges_;
+
+			std::map<std::string, path_object*> grouped_paths;
+
+			auto get_group = [&](const std::string& cls) -> path_object* {
+				auto itg = grouped_paths.find(cls);
+				if (itg != grouped_paths.end()) return itg->second;
+
+				std::string cls_name = name;
+				add_svg_class_to_group_id(cls_name, cls);
+
+				path_object* po = nullptr;
+			if (drawing_name.first) {
+					po = &start_path(pln, drawing_name.first, cls_name);
+			} else {
+					po = &start_path(pln, drawing_name.second, cls_name);
+			}
+				grouped_paths.insert({cls, po});
+				return po;
+			};
+
+			TopExp_Explorer exp_unmir(hlr_compound_unmirrored, TopAbs_EDGE);
+
+            g_svg_cls_dbg = svg_edge_classify_debug_counters{};
+			size_t n_total = 0, n_contains = 0, n_contour = 0, n_crease = 0, n_sharp = 0, n_hidden = 0;
+			// (declare before loop)
+
+			for (; exp_unmir.More(); exp_unmir.Next()) {
+				const TopoDS_Edge edge_unmir = TopoDS::Edge(exp_unmir.Current());
+
+				edge_style_class c = edge_style_class::contour;
+				if (edge_faces.Contains(edge_unmir)) {
+					try {
+						c = classify_edge_from_faces(
+							edge_unmir,
+							edge_faces.FindFromKey(edge_unmir),
+							pln.Axis().Direction(),
+							crease_threshold_deg,
+							sharp_threshold_deg,
+							emit_hidden_edges
+						);
+					} catch (const Standard_Failure& e) {
+						logger_.Error("SER", 90, std::string("classify_edge_from_faces OCC exception: ") + e.GetMessageString());
+						c = edge_style_class::contour;
+					} catch (const std::exception& e) {
+						logger_.Error("SER", 91, std::string("classify_edge_from_faces std::exception: ") + e.what());
+						c = edge_style_class::contour;
+					} catch (...) {
+						logger_.Error("SER", 92, "classify_edge_from_faces unknown exception");
+						c = edge_style_class::contour;
+					}
+				}
+
+				++n_total;
+				if (edge_faces.Contains(edge_unmir)) ++n_contains;
+
+				switch (c) {
+				case edge_style_class::contour: ++n_contour; break;
+				case edge_style_class::crease:  ++n_crease;  break;
+				case edge_style_class::sharp:   ++n_sharp;   break;
+				case edge_style_class::hidden:  ++n_hidden;  break;
+				}
+
+				if (c == edge_style_class::hidden && !emit_hidden_edges) {
+					continue;
+				}
+
+				const std::string cls = edge_style_class_name(c);
+				path_object* po = get_group(cls);
+
+				try {
 				TopoDS_Wire w;
 				B.MakeWire(w);
-				B.Add(w, exp.Current());
-				write(*po, w);
+					B.Add(w, edge_unmir);
+
+					// Apply mirroring only for writing where needed, AFTER classification.
+					TopoDS_Shape w_to_write = w;
+					if (drawing_name.first == nullptr) {
+						gp_Trsf trsf_mirror;
+						if (!mirror_y_) {
+							trsf_mirror.SetMirror(gp_Ax2(gp::Origin(), gp::DY()));
 			}
+						if (mirror_x_) {
+							gp_Trsf mirror_x;
+							mirror_x.SetMirror(gp_Ax2(gp::Origin(), gp::DX()));
+							trsf_mirror.PreMultiply(mirror_x);
+						}
+						BRepBuilderAPI_Transform make_transform_mirror_wire(w, trsf_mirror, true);
+						make_transform_mirror_wire.Build();
+						w_to_write = make_transform_mirror_wire.Shape();
+					}
+
+					write(*po, w_to_write);
+				} catch (const Standard_Failure& e) {
+					logger_.Error("SER", 93, std::string("edge write OCC exception: ") + e.GetMessageString());
+				} catch (const std::exception& e) {
+					logger_.Error("SER", 94, std::string("edge write std::exception: ") + e.what());
+				} catch (...) {
+					logger_.Error("SER", 95, "edge write unknown exception");
+				}
+			}
+
+			logger_.Notice("SER", 72, "SVG edge classes total=" + std::to_string(n_total) + " contains=" + std::to_string(n_contains) +" contour=" + std::to_string(n_contour) + " crease=" + std::to_string(n_crease) + " sharp=" + std::to_string(n_sharp) + " hidden=" + std::to_string(n_hidden));
+
+            // In draw_hlr(), after your existing SER072 line, print classifier internals:
+            logger_.Notice(
+	            "SER", 73,
+	            "SVG classify dbg calls=" + std::to_string(g_svg_cls_dbg.calls) +
+	            " f0=" + std::to_string(g_svg_cls_dbg.face_count_0) +
+	            " f1=" + std::to_string(g_svg_cls_dbg.face_count_1) +
+	            " f2p=" + std::to_string(g_svg_cls_dbg.face_count_2plus) +
+	            " nfail=" + std::to_string(g_svg_cls_dbg.normal_fail) +
+	            " ang=" + std::to_string(g_svg_cls_dbg.angle_computed) +
+	            " hmk=" + std::to_string(g_svg_cls_dbg.hidden_marked) +
+	            " rc=" + std::to_string(g_svg_cls_dbg.returned_contour) +
+	            " rcr=" + std::to_string(g_svg_cls_dbg.returned_crease) +
+	            " rsh=" + std::to_string(g_svg_cls_dbg.returned_sharp) +
+	            " rh=" + std::to_string(g_svg_cls_dbg.returned_hidden)
+            );
 
 		}
 	}
@@ -2236,6 +2591,27 @@ void SvgSerializer::doWriteHeader() {
 			"            fill: none;\n"
 			"            stroke-opacity: 0.6;\n"
 			"        }\n"
+			"        /* Edge style classes (issue #3668) */\n"
+			"        .projection.contour path,\n"
+			"        .contour path {\n"
+			"            stroke: #222222;\n"
+			"            fill: none;\n"
+			"            stroke-opacity: 0.9;\n"
+			"        }\n"
+			"        .projection.crease path,\n"
+			"        .crease path {\n"
+			"            stroke: #444444;\n"
+			"            fill: none;\n"
+			"            stroke-opacity: 0.7;\n"
+			"        }\n"
+			"        .projection.sharp path,\n"
+			"        .sharp path {\n"
+			"            stroke: #111111;\n"
+			"            fill: none;\n"
+			"            stroke-opacity: 1.0;\n"
+			"        }\n"
+			"        .projection.hidden path,\n"
+			"        .hidden path { display: none; }\n"
 			"        .IfcDoor path,\n"
 			"        .Symbol path {\n"
 			"            fill: none;\n"

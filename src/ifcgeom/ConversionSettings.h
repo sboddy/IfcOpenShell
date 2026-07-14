@@ -114,6 +114,24 @@ namespace ifcopenshell {
 				static constexpr double defaultvalue = 0.5;
 			};
 
+			// SVG line classification (issue #3668)
+			struct SvgCreaseThresholdDegrees : public SettingBase<SvgCreaseThresholdDegrees, double> {
+				static constexpr const char* const name = "svg-crease-threshold-deg";
+				static constexpr const char* const description = "SVG edge classification: edges below this dihedral angle (degrees) are marked as crease.";
+				static constexpr double defaultvalue = 12.0;
+			};
+
+			struct SvgSharpThresholdDegrees : public SettingBase<SvgSharpThresholdDegrees, double> {
+				static constexpr const char* const name = "svg-sharp-threshold-deg";
+				static constexpr const char* const description = "SVG edge classification: edges above this dihedral angle (degrees) are marked as sharp.";
+				static constexpr double defaultvalue = 45.0;
+			};
+
+			struct SvgEmitHiddenEdges : public SettingBase<SvgEmitHiddenEdges, bool> {
+				static constexpr const char* const name = "svg-emit-hidden-edges";
+				static constexpr const char* const description = "Emit hidden edges in SVG output (otherwise hidden edges are omitted).";
+				static constexpr bool defaultvalue = false;
+			};
 			struct ReorientShells : public SettingBase<ReorientShells, bool> {
 				static constexpr const char* const name = "reorient-shells";
 				static constexpr const char* const description = "Specifies whether to orient the faces of IfcConnectedFaceSets. "
@@ -653,7 +671,7 @@ namespace ifcopenshell {
 		};
 
 		class Settings : public SettingsContainer<
-                             std::tuple<MesherLinearDeflection, MesherAngularDeflection, ReorientShells, LengthUnit, PlaneUnit, Precision, OutputDimensionality, LayersetFirst, DisableBooleanResult, NoWireIntersectionCheck, NoWireIntersectionTolerance, PrecisionFactor, DebugBooleanOperations, BooleanAttempt2d, SurfaceColour, WeldVertices, UseWorldCoords, UnifyShapes, UseMaterialNames, ConvertBackUnits, ContextIds, ContextTypes, ContextIdentifiers, IteratorOutput, DisableOpeningSubtractions, ApplyDefaultMaterials, DontEmitNormals, GenerateUvs, ApplyLayerSets, UseElementHierarchy, ValidateQuantities, EdgeArrows, BuildingLocalPlacement, SiteLocalPlacement, ForceSpaceTransparency, CircleSegments, CgalSmoothAngleDegrees, KeepBoundingBoxes, ComputeCurvature, FunctionStepType, FunctionStepParam, NoParallelMapping, PermissiveShapeReuse, ModelOffset, ModelRotation, TriangulationType, CgalEmitOriginalEdges, OcctNoCleanTriangulation, CacheShapes, DeferProcessingFirstElement, MaxOffset, MaxOffsetDeviation, ApplyOffset, MakeVolume>
+                             std::tuple<MesherLinearDeflection, MesherAngularDeflection, SvgCreaseThresholdDegrees, SvgSharpThresholdDegrees, SvgEmitHiddenEdges,ReorientShells, LengthUnit, PlaneUnit, Precision, OutputDimensionality, LayersetFirst, DisableBooleanResult, NoWireIntersectionCheck, NoWireIntersectionTolerance, PrecisionFactor, DebugBooleanOperations, BooleanAttempt2d, SurfaceColour, WeldVertices, UseWorldCoords, UnifyShapes, UseMaterialNames, ConvertBackUnits, ContextIds, ContextTypes, ContextIdentifiers, IteratorOutput, DisableOpeningSubtractions, ApplyDefaultMaterials, DontEmitNormals, GenerateUvs, ApplyLayerSets, UseElementHierarchy, ValidateQuantities, EdgeArrows, BuildingLocalPlacement, SiteLocalPlacement, ForceSpaceTransparency, CircleSegments, CgalSmoothAngleDegrees, KeepBoundingBoxes, ComputeCurvature, FunctionStepType, FunctionStepParam, NoParallelMapping, PermissiveShapeReuse, ModelOffset, ModelRotation, TriangulationType, CgalEmitOriginalEdges, OcctNoCleanTriangulation, CacheShapes, DeferProcessingFirstElement, MaxOffset, MaxOffsetDeviation, ApplyOffset, MakeVolume>
 		>
 		{};
 }
