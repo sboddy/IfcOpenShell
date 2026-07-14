@@ -261,6 +261,22 @@ class CreateDrawing(bpy.types.Operator):
         description="Could save some time if you're sure IFC and current Blender session are already in sync",
         default=True,
     )
+    svg_crease_threshold_deg: bpy.props.FloatProperty(
+        name="Crease threshold (deg)",
+        default=12.0,
+        min=0.0,
+        max=180.0,
+    )
+    svg_sharp_threshold_deg: bpy.props.FloatProperty(
+        name="Sharp threshold (deg)",
+        default=45.0,
+        min=0.0,
+        max=180.0,
+    )
+    svg_emit_hidden_edges: bpy.props.BoolProperty(
+        name="Emit hidden edges",
+        default=False,
+    )
 
     if TYPE_CHECKING:
         print_all: bool

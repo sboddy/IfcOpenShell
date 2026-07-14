@@ -218,6 +218,23 @@ namespace {
 		return true;
 	}
 
+	// Add near top of file (or inside an anonymous namespace in this translation unit)
+	struct svg_edge_classify_debug_counters {
+		size_t calls = 0;
+		size_t face_count_0 = 0;
+		size_t face_count_1 = 0;
+		size_t face_count_2plus = 0;
+		size_t normal_fail = 0;
+		size_t angle_computed = 0;
+		size_t hidden_marked = 0;
+		size_t returned_contour = 0;
+		size_t returned_crease = 0;
+		size_t returned_sharp = 0;
+		size_t returned_hidden = 0;
+	};
+
+	static svg_edge_classify_debug_counters g_svg_cls_dbg;
+
 	inline edge_style_class classify_edge_from_faces(
 		const TopoDS_Edge& edge,
 		const NCollection_List<TopoDS_Shape>& faces,
@@ -226,6 +243,58 @@ namespace {
 		double sharp_threshold_deg,
 		bool emit_hidden_edges
 	) {
+
+		// In classify_edge_from_faces(...), at function start:
+		++g_svg_cls_dbg.calls;
+
+		// Materialize faces list into vector (or equivalent) so we can count/index safely
+		std::vector<TopoDS_Face> faces_vec;
+		for (NCollection_List<TopoDS_Shape>::Iterator it(faces); it.More(); it.Next()) {
+			const TopoDS_Shape& s = it.Value();
+			if (s.ShapeType() == TopAbs_FACE) {
+				faces_vec.push_back(TopoDS::Face(s));
+			}
+		}
+
+		if (faces_vec.empty()) {
+			++g_svg_cls_dbg.face_count_0;
+			++g_svg_cls_dbg.returned_contour;
+			return edge_style_class::contour;
+		}
+		if (faces_vec.size() == 1) {
+			++g_svg_cls_dbg.face_count_1;
+			++g_svg_cls_dbg.returned_contour;
+			return edge_style_class::contour;
+		}
+		++g_svg_cls_dbg.face_count_2plus;
+
+		// ... when normal extraction fails anywhere:
+		++g_svg_cls_dbg.normal_fail;
+		++g_svg_cls_dbg.returned_contour;
+		return edge_style_class::contour;
+
+		// ... when you successfully compute dihedral/angle:
+		++g_svg_cls_dbg.angle_computed;
+
+		// ... when hidden condition is detected:
+		++g_svg_cls_dbg.hidden_marked;
+		// if returning hidden:
+		++g_svg_cls_dbg.returned_hidden;
+		return edge_style_class::hidden;
+
+		// ... when returning crease:
+		++g_svg_cls_dbg.returned_crease;
+		return edge_style_class::crease;
+
+		// ... when returning sharp:
+		++g_svg_cls_dbg.returned_sharp;
+		return edge_style_class::sharp;
+
+		// ... final default contour return:
+		++g_svg_cls_dbg.returned_contour;
+		return edge_style_class::contour;
+
+
 		(void)edge;
 		(void)emit_hidden_edges;
 
@@ -2008,21 +2077,31 @@ void SvgSerializer::draw_hlr(const gp_Pln& pln, const drawing_key& drawing_name)
 			};
 
 			TopExp_Explorer exp_unmir(hlr_compound_unmirrored, TopAbs_EDGE);
-			BRep_Builder B;
 
 			for (; exp_unmir.More(); exp_unmir.Next()) {
 				const TopoDS_Edge edge_unmir = TopoDS::Edge(exp_unmir.Current());
 
 				edge_style_class c = edge_style_class::contour;
 				if (edge_faces.Contains(edge_unmir)) {
-					c = classify_edge_from_faces(
-						edge_unmir,
-						edge_faces.FindFromKey(edge_unmir),
-						pln.Axis().Direction(),
-						crease_threshold_deg,
-						sharp_threshold_deg,
-						emit_hidden_edges
-					);
+					try {
+						c = classify_edge_from_faces(
+							edge_unmir,
+							edge_faces.FindFromKey(edge_unmir),
+							pln.Axis().Direction(),
+							crease_threshold_deg,
+							sharp_threshold_deg,
+							emit_hidden_edges
+						);
+					} catch (const Standard_Failure& e) {
+						logger_.Error("SER", 90, std::string("classify_edge_from_faces OCC exception: ") + e.GetMessageString());
+						c = edge_style_class::contour;
+					} catch (const std::exception& e) {
+						logger_.Error("SER", 91, std::string("classify_edge_from_faces std::exception: ") + e.what());
+						c = edge_style_class::contour;
+					} catch (...) {
+						logger_.Error("SER", 92, "classify_edge_from_faces unknown exception");
+						c = edge_style_class::contour;
+					}
 				}
 
 				if (c == edge_style_class::hidden && !emit_hidden_edges) {
@@ -2032,28 +2111,36 @@ void SvgSerializer::draw_hlr(const gp_Pln& pln, const drawing_key& drawing_name)
 				const std::string cls = edge_style_class_name(c);
 				path_object* po = get_group(cls);
 
-				TopoDS_Wire w;
-				B.MakeWire(w);
-				B.Add(w, edge_unmir);
+				try {
+					TopoDS_Wire w;
+					B.MakeWire(w);
+					B.Add(w, edge_unmir);
 
-				// Apply mirroring only for writing where needed, AFTER classification.
-				TopoDS_Shape w_to_write = w;
-				if (drawing_name.first == nullptr) {
-					gp_Trsf trsf_mirror;
-					if (!mirror_y_) {
-						trsf_mirror.SetMirror(gp_Ax2(gp::Origin(), gp::DY()));
+					// Apply mirroring only for writing where needed, AFTER classification.
+					TopoDS_Shape w_to_write = w;
+					if (drawing_name.first == nullptr) {
+						gp_Trsf trsf_mirror;
+						if (!mirror_y_) {
+							trsf_mirror.SetMirror(gp_Ax2(gp::Origin(), gp::DY()));
+						}
+						if (mirror_x_) {
+							gp_Trsf mirror_x;
+							mirror_x.SetMirror(gp_Ax2(gp::Origin(), gp::DX()));
+							trsf_mirror.PreMultiply(mirror_x);
+						}
+						BRepBuilderAPI_Transform make_transform_mirror_wire(w, trsf_mirror, true);
+						make_transform_mirror_wire.Build();
+						w_to_write = make_transform_mirror_wire.Shape();
 					}
-					if (mirror_x_) {
-						gp_Trsf mirror_x;
-						mirror_x.SetMirror(gp_Ax2(gp::Origin(), gp::DX()));
-						trsf_mirror.PreMultiply(mirror_x);
-					}
-					BRepBuilderAPI_Transform make_transform_mirror_wire(w, trsf_mirror, true);
-					make_transform_mirror_wire.Build();
-					w_to_write = make_transform_mirror_wire.Shape();
+
+					write(*po, w_to_write);
+				} catch (const Standard_Failure& e) {
+					logger_.Error("SER", 93, std::string("edge write OCC exception: ") + e.GetMessageString());
+				} catch (const std::exception& e) {
+					logger_.Error("SER", 94, std::string("edge write std::exception: ") + e.what());
+				} catch (...) {
+					logger_.Error("SER", 95, "edge write unknown exception");
 				}
-
-				write(*po, w_to_write);
 			}
 		}
 	}
